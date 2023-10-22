@@ -4,6 +4,7 @@ from mpl_toolkits import mplot3d
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from typing import List
+import cvxpy as cp
 
 
 class ContactPoint:
@@ -48,7 +49,6 @@ class GraspingObj:
         x = [cp.position[0] for cp in self._cps]
         y = [cp.position[1] for cp in self._cps]
         z = [cp.position[2] for cp in self._cps]
-        print(x, y, z)
         ax.scatter3D(x, y, z, marker="v", c='r')
         ax.add_collection3d(Poly3DCollection(self._faces[[cp.fid for cp in self._cps]], facecolors="r"))
         # plt.axis('off')
@@ -69,8 +69,11 @@ class GraspingObj:
 
     def _generate_contact_cone(self, contactPoint: ContactPoint):
         stepSize = 2 * np.pi / self._cone_num
+        X = np.asarray([1, 0, 0])
         Y = np.asarray([0, 1, 0])
-        B = np.cross(contactPoint.normal, Y)
+        B = np.cross(contactPoint.normal, X)
+        if np.linalg.norm(B) < 1e-10:
+            B = np.cross(contactPoint.normal, Y)
         B /= np.linalg.norm(B)
         T = np.cross(B, contactPoint.normal)
         T /= np.linalg.norm(T)
@@ -91,3 +94,24 @@ class GraspingObj:
         for cp in contactPoints:
             for cone in self._generate_contact_cone(cp):
                 self._contact_cones.append(cone)
+
+    def _create_grasp_matrix(self):
+        nContacts = len(self._contact_cones)
+        G = np.empty([6, nContacts], dtype=float)
+        for i in range(nContacts):
+            G[0: 3, i] = -self._contact_cones[i].normal
+            G[3: 6, i] = np.cross(self._contact_cones[i].position - self._cog, -self._contact_cones[i].normal)
+        return G
+
+    def check_partial_closure(self, contactPoints: List[ContactPoint]):
+        self.generate_contact_cones(contactPoints)
+
+        G = self._create_grasp_matrix()
+        targetWrench = np.asarray([0., 0., 1., 0., 0., 0.])
+        kWrench = cp.Variable(len(self._contact_cones))
+        objective = cp.Minimize(cp.norm(G @ kWrench - targetWrench))
+        constraints = [kWrench >= 0]
+        problem = cp.Problem(objective, constraints)
+        problem.solve(solver=cp.ECOS)
+        print(problem.status, problem.value, kWrench.value)
+        print(G @ kWrench.value - targetWrench)
