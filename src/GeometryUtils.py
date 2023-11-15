@@ -1,4 +1,5 @@
 import numpy as np
+import math
 from stl import mesh
 from mpl_toolkits import mplot3d
 import matplotlib.pyplot as plt
@@ -7,111 +8,126 @@ from typing import List
 import cvxpy as cp
 
 
-class ContactPoint:
-    def __init__(self, obj, fid):
-        self.fid = fid
-        self.position = np.average(obj._faces[fid], axis=0)
-        self.normal = obj._normals[fid]
-        self.normal /= np.linalg.norm(self.normal)
-
-
-class ContactCone:
-    def __init__(self, fid, position, normal):
-        self.fid = fid
-        self.position = position
-        self.normal = normal
-
-
 class GraspingObj:
-    def __init__(self, friction=.4, cone_num=4):
+    def __init__(self, friction=.4):
         self._mesh = None
-        self._faces = None
-        self._normals = None
+        self.faces = None
+        self.normals = None
         self._volume = None
         self._cog = None
-        self._cps = []
-        self._contact_cones = []
-        self._friction = friction
-        self._cone_num = cone_num
+        self.mu = friction
 
     def read_from_stl(self, filename):
         self._mesh = mesh.Mesh.from_file(filename)
-        self._faces = self._mesh.vectors
-        self._normals = self._mesh.normals
+        self.faces = self._mesh.vectors
+        self.normals = self._mesh.normals
         self._cog = self.calc_cog()
-
-    def visualization(self):
-        figure = plt.figure()
-        ax = figure.add_axes(mplot3d.Axes3D(figure))
-        ax.add_collection3d(Poly3DCollection(self._faces, alpha=.3, facecolors="lightgrey"))
-        scale = self._mesh.points.flatten()
-        ax.auto_scale_xyz(scale, scale, scale)
-        x = [cp.position[0] for cp in self._cps]
-        y = [cp.position[1] for cp in self._cps]
-        z = [cp.position[2] for cp in self._cps]
-        ax.scatter3D(x, y, z, marker="v", c='r')
-        ax.add_collection3d(Poly3DCollection(self._faces[[cp.fid for cp in self._cps]], facecolors="r"))
-        # plt.axis('off')
-        plt.show()
 
     def calc_cog(self):
         volume = 0.
         center = np.asarray([0, 0, 0], dtype=float)
-        for i in range(0, self._faces.shape[0]):
-            a = self._faces[i][0]
-            b = self._faces[i][1]
-            c = self._faces[i][2]
+        for i in range(0, self.faces.shape[0]):
+            a = self.faces[i][0]
+            b = self.faces[i][1]
+            c = self.faces[i][2]
             tet_volume = -a.dot(np.cross(b, c)) / 6.
             tet_center = (a + b + c) / 4.
             center += tet_center * tet_volume
             volume += tet_volume
         return center / volume
 
-    def _generate_contact_cone(self, contactPoint: ContactPoint):
-        stepSize = 2 * np.pi / self._cone_num
-        X = np.asarray([1, 0, 0])
-        Y = np.asarray([0, 1, 0])
-        B = np.cross(contactPoint.normal, X)
-        if np.linalg.norm(B) < 1e-10:
-            B = np.cross(contactPoint.normal, Y)
-        B /= np.linalg.norm(B)
-        T = np.cross(B, contactPoint.normal)
-        T /= np.linalg.norm(T)
-        coeff = max(contactPoint.normal.dot(Y), 1e-6)
-        B *= self._friction * coeff
-        T *= self._friction * coeff
-        contact_cone = []
-        for i in range(self._cone_num):
-            curStep = i * stepSize
-            normal = contactPoint.normal + B * np.cos(curStep) + T * np.sin(curStep)
-            cone = ContactCone(contactPoint.fid, contactPoint.position, normal)
-            contact_cone.append(cone)
+    def visualization(self):
+        figure = plt.figure()
+        ax = figure.add_axes(mplot3d.Axes3D(figure))
+        ax.add_collection3d(Poly3DCollection(self.faces, alpha=.3, facecolors="lightgrey"))
+        scale = self._mesh.points.flatten()
+        ax.auto_scale_xyz(scale, scale, scale)
+        # plt.axis('off')
+        plt.show()
 
-        return contact_cone
 
-    def generate_contact_cones(self, contactPoints: List[ContactPoint]):
-        self._cps = contactPoints
-        for cp in contactPoints:
-            for cone in self._generate_contact_cone(cp):
-                self._contact_cones.append(cone)
+class ContactPoints:
+    def __init__(self, obj: GraspingObj, fid: List[int]):
+        self._obj = obj
+        self._fid = fid
+        self.position = np.asarray([np.average(obj.faces[f], axis=0) for f in fid])
+        self.normals = -np.asarray([obj.normals[f] / np.linalg.norm(obj.normals[f]) for f in fid])
+        x1, y1, z1 = self.position[0]
+        x2, y2, z2 = self.position[1]
+        x3, y3, z3 = self.position[2]
+        self.f = np.transpose(np.asarray([[0, 0, 1., 0, 0, 0]]))
+        self.W = np.asarray([[1, 0, 0, 1, 0, 0, 1, 0, 0],
+                             [0, 1, 0, 0, 1, 0, 0, 1, 0],
+                             [0, 0, 1, 0, 0, 1, 0, 0, 1],
+                             [0, -z1, y1, 0, -z2, y2, 0, -z3, y3],
+                             [z1, 0, -x1, z2, 0, -x2, z3, 0, -x3],
+                             [-y1, x1, 0, -y2, x2, 0, -y3, x3, 0]])
+        self.Omega = self.W @ self.W.T
+        self.N = np.asarray([[x2 - x1, x3 - x1, 0],
+                             [y2 - y1, y3 - y1, 0],
+                             [z2 - z1, z3 - z1, 0],
+                             [x1 - x2, 0, x3 - x2],
+                             [y1 - y2, 0, y3 - y2],
+                             [z1 - z2, 0, z3 - z2],
+                             [0, x1 - x3, x2 - x3],
+                             [0, y1 - y3, y2 - y3],
+                             [0, z1 - z3, z2 - z3]])
+        self.G = self.N.T @ self.N
+        self._FE = self.W.T @ np.linalg.inv(self.Omega) @ self.f
+        self.K = 0.5 * self._FE.T @ self._FE
+        self.eta = 1.0 + math.pow(self._obj.mu, 2)
+        self.F = self.calc_force()
 
-    def _create_grasp_matrix(self):
-        nContacts = len(self._contact_cones)
-        G = np.empty([6, nContacts], dtype=float)
-        for i in range(nContacts):
-            G[0: 3, i] = -self._contact_cones[i].normal
-            G[3: 6, i] = np.cross(self._contact_cones[i].position - self._cog, -self._contact_cones[i].normal)
-        return G
+    def calc_force(self, verbose=False):
+        lambdas = cp.Variable([3, 1])
+        F = self._FE + self.N @ lambdas
 
-    def check_partial_closure(self, contactPoints: List[ContactPoint]):
-        self.generate_contact_cones(contactPoints)
+        constraints = []
+        for i in range(3):
+            Fi = F[i * 3: (i + 1) * 3]
+            gi = cp.norm(Fi) - cp.sqrt(self.eta) * (Fi.T @ self.normals[i])
+            hi = -Fi.T @ self.normals[i]
+            constraints += [gi <= 0]
+            constraints += [hi <= 0]
 
-        G = self._create_grasp_matrix()
-        targetWrench = np.asarray([0., 0., 1., 0., 0., 0.])
-        kWrench = cp.Variable(len(self._contact_cones))
-        objective = cp.Minimize(cp.norm(G @ kWrench - targetWrench))
-        constraints = [kWrench >= 0]
+        objective = cp.Minimize((1 / 2) * cp.quad_form(lambdas, self.G) + self.K)
         problem = cp.Problem(objective, constraints)
         problem.solve(solver=cp.ECOS)
-        print(problem.status, problem.value, kWrench.value)
-        print(G @ kWrench.value - targetWrench)
+        if verbose:
+            print("Status: %s" % problem.status)
+            print("Optimal Value: %s" % problem.value)
+            print("Force:\n %s" % F.value)
+        if problem.status not in ["infeasible", "unbounded"]:
+            return F.value
+        else:
+            return None
+
+    def visualisation(self, vector_ratio=1.):
+        figure = plt.figure()
+        ax = figure.add_axes(mplot3d.Axes3D(figure))
+        ax.add_collection3d(Poly3DCollection(self._obj.faces, alpha=.3, facecolors="lightgrey"))
+        scale = self._obj._mesh.points.flatten()
+        ax.auto_scale_xyz(scale, scale, scale)
+        x = [p[0] for p in self.position]
+        y = [p[1] for p in self.position]
+        z = [p[2] for p in self.position]
+        ax.scatter3D(x[0], y[0], z[0], marker="v", c='r')
+        ax.add_collection3d(Poly3DCollection(self._obj.faces[self._fid], facecolors="r"))
+        if self.F is not None:
+            for i in range(3):
+                ax.quiver(x[i], y[i], z[i],
+                          self.F[i * 3] * vector_ratio,
+                          self.F[i * 3 + 1] * vector_ratio,
+                          self.F[i * 3 + 2] * vector_ratio,
+                          arrow_length_ratio=0.1)
+        plt.show()
+
+
+if __name__ == "__main__":
+    # test
+    stl_file = 'E:/SGLab/Dissertation/Gripper-Computational-Design/assets/Cube.stl'
+    test_obj = GraspingObj(friction=0.5)
+    test_obj.read_from_stl(stl_file)
+    cps = ContactPoints(test_obj, [31, 66, 99])
+    cps.calc_force(verbose=True)
+    cps.visualisation(vector_ratio=10)
