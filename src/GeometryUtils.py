@@ -126,7 +126,8 @@ class ContactPoints:
 if __name__ == "__main__":
     # test
     stl_file = 'E:/SGLab/Dissertation/Gripper-Computational-Design/assets/Cube.stl'
-    test_obj = GraspingObj(friction=0.5)
+    # stl_file = 'E:/SGLab/Dissertation/Gripper-Computational-Design/assets/StanfordBunny.stl'
+    test_obj = GraspingObj(friction=0.4)
     test_obj.read_from_stl(stl_file)
     cps = ContactPoints(test_obj, [31, 66, 99])
     cps.calc_force(verbose=True)
