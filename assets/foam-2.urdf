@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<robot name="physics">
+
+<link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="unit.obj" scale="0.1 0.1 0.1"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="0 0 .8 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="unit.obj" scale="0.1 0.1 0.1"/>
+      </geometry>
+      <contact_coefficients kp="10000" kd="100"/>
+    </collision>
+  </link>
+
+<link name="link1">
+    <visual>
+      <origin xyz="0.25 0 0"/>
+      <geometry>
+        <mesh filename="unit.obj" scale="0.1 0.1 0.1"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="0 0 .8 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.25 0 0"/>
+      <geometry>
+        <mesh filename="unit.obj" scale="0.1 0.1 0.1"/>
+      </geometry>
+      <contact_coefficients kp="10000" kd="100"/>
+    </collision>
+  </link>
+
+<joint name="joint01" type="revolute">
+    <origin xyz="2.25 0 0"/>
+    <parent link="base_link"/>
+    <child link="link1"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="300" velocity="1"/>
+</joint>
+</robot>

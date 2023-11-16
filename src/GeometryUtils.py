@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.linalg import null_space
 import math
 from stl import mesh
 from mpl_toolkits import mplot3d
@@ -50,40 +51,55 @@ class ContactPoints:
     def __init__(self, obj: GraspingObj, fid: List[int]):
         self._obj = obj
         self._fid = fid
+        self.nContact = len(fid)
         self.position = np.asarray([np.average(obj.faces[f], axis=0) for f in fid])
         self.normals = -np.asarray([obj.normals[f] / np.linalg.norm(obj.normals[f]) for f in fid])
-        x1, y1, z1 = self.position[0]
-        x2, y2, z2 = self.position[1]
-        x3, y3, z3 = self.position[2]
+        # x1, y1, z1 = self.position[0]
+        # x2, y2, z2 = self.position[1]
+        # x3, y3, z3 = self.position[2]
         self.f = np.transpose(np.asarray([[0, 0, 1., 0, 0, 0]]))
-        self.W = np.asarray([[1, 0, 0, 1, 0, 0, 1, 0, 0],
-                             [0, 1, 0, 0, 1, 0, 0, 1, 0],
-                             [0, 0, 1, 0, 0, 1, 0, 0, 1],
-                             [0, -z1, y1, 0, -z2, y2, 0, -z3, y3],
-                             [z1, 0, -x1, z2, 0, -x2, z3, 0, -x3],
-                             [-y1, x1, 0, -y2, x2, 0, -y3, x3, 0]])
+        # self.W = np.asarray([[1, 0, 0, 1, 0, 0, 1, 0, 0],
+        #                      [0, 1, 0, 0, 1, 0, 0, 1, 0],
+        #                      [0, 0, 1, 0, 0, 1, 0, 0, 1],
+        #                      [0, -z1, y1, 0, -z2, y2, 0, -z3, y3],
+        #                      [z1, 0, -x1, z2, 0, -x2, z3, 0, -x3],
+        #                      [-y1, x1, 0, -y2, x2, 0, -y3, x3, 0]])
+        self.W = self._create_grasp_matrix()
         self.Omega = self.W @ self.W.T
-        self.N = np.asarray([[x2 - x1, x3 - x1, 0],
-                             [y2 - y1, y3 - y1, 0],
-                             [z2 - z1, z3 - z1, 0],
-                             [x1 - x2, 0, x3 - x2],
-                             [y1 - y2, 0, y3 - y2],
-                             [z1 - z2, 0, z3 - z2],
-                             [0, x1 - x3, x2 - x3],
-                             [0, y1 - y3, y2 - y3],
-                             [0, z1 - z3, z2 - z3]])
+        # self.N = np.asarray([[x2 - x1, x3 - x1, 0],
+        #                      [y2 - y1, y3 - y1, 0],
+        #                      [z2 - z1, z3 - z1, 0],
+        #                      [x1 - x2, 0, x3 - x2],
+        #                      [y1 - y2, 0, y3 - y2],
+        #                      [z1 - z2, 0, z3 - z2],
+        #                      [0, x1 - x3, x2 - x3],
+        #                      [0, y1 - y3, y2 - y3],
+        #                      [0, z1 - z3, z2 - z3]])
+        self.N = null_space(self.W)
         self.G = self.N.T @ self.N
         self._FE = self.W.T @ np.linalg.inv(self.Omega) @ self.f
         self.K = 0.5 * self._FE.T @ self._FE
         self.eta = 1.0 + math.pow(self._obj.mu, 2)
         self.F = self.calc_force()
 
+    def _create_grasp_matrix(self):
+        W = np.zeros([6, 3 * self.nContact])
+        for i in range(self.nContact):
+            xi, yi, zi = self.position[i]
+            W[:, 3 * i: 3 * (i + 1)] = np.asarray([[1, 0, 0],
+                                                   [0, 1, 0],
+                                                   [0, 0, 1],
+                                                   [0, -zi, yi],
+                                                   [zi, 0, -xi],
+                                                   [-yi, xi, 0]])
+        return W
+
     def calc_force(self, verbose=False):
-        lambdas = cp.Variable([3, 1])
+        lambdas = cp.Variable([3 * (self.nContact - 2), 1])
         F = self._FE + self.N @ lambdas
 
         constraints = []
-        for i in range(3):
+        for i in range(self.nContact):
             Fi = F[i * 3: (i + 1) * 3]
             gi = cp.norm(Fi) - cp.sqrt(self.eta) * (Fi.T @ self.normals[i])
             hi = -Fi.T @ self.normals[i]
@@ -111,15 +127,15 @@ class ContactPoints:
         x = [p[0] for p in self.position]
         y = [p[1] for p in self.position]
         z = [p[2] for p in self.position]
-        ax.scatter3D(x[0], y[0], z[0], marker="v", c='r')
+        ax.scatter3D(x, y, z, marker="v", c='r')
         ax.add_collection3d(Poly3DCollection(self._obj.faces[self._fid], facecolors="r"))
         if self.F is not None:
-            for i in range(3):
+            for i in range(self.nContact):
                 ax.quiver(x[i], y[i], z[i],
                           self.F[i * 3] * vector_ratio,
                           self.F[i * 3 + 1] * vector_ratio,
                           self.F[i * 3 + 2] * vector_ratio,
-                          arrow_length_ratio=0.1)
+                          arrow_length_ratio=0.2)
         plt.show()
 
 
@@ -129,6 +145,7 @@ if __name__ == "__main__":
     # stl_file = 'E:/SGLab/Dissertation/Gripper-Computational-Design/assets/StanfordBunny.stl'
     test_obj = GraspingObj(friction=0.4)
     test_obj.read_from_stl(stl_file)
-    cps = ContactPoints(test_obj, [31, 66, 99])
+    # cps = ContactPoints(test_obj, [31, 66, 99])
+    cps = ContactPoints(test_obj, np.arange(72).tolist())
     cps.calc_force(verbose=True)
-    cps.visualisation(vector_ratio=10)
+    cps.visualisation(vector_ratio=100)
