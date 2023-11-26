@@ -3,85 +3,75 @@
 
 <link name="base_link">
     <visual>
+        <origin xyz="0 0 0" rpy="3.1415926 0 0"/>
         <geometry>
-            <mesh filename="unit.stl" scale="0.1 0.1 0.1"/>
+            <mesh filename="unit.stl" scale="0.001 0.001 0.001"/>
         </geometry>
         <material name="blue">
             <color rgba="0 0 .8 1"/>
         </material>
     </visual>
     <collision>
+        <origin xyz="0 0 0" rpy="3.1415926 0 0"/>
         <geometry>
-            <mesh filename="unit.stl" scale="0.1 0.1 0.1"/>
+            <mesh filename="unit.stl" scale="0.001 0.001 0.001"/>
         </geometry>
         <contact_coefficients mu="0.8" />
     </collision>
-    <inertial>
-      <mass value=".5"/>
-      <inertia ixx="0.4" ixy="0.0" ixz="0.0" iyy="0.4" iyz="0.0" izz="0.2"/>
-    </inertial>
 </link>
 
 <link name="link1">
     <visual>
-        <origin xyz="0.25 0 0"/>
+        <origin xyz="0.0025 0 0" rpy="3.1415926 0 0"/>
         <geometry>
-            <mesh filename="unit.stl" scale="0.1 0.1 0.1"/>
+            <mesh filename="unit.stl" scale="0.001 0.001 0.001"/>
         </geometry>
         <material name="blue">
             <color rgba="0 0 .8 1"/>
         </material>
     </visual>
     <collision>
-        <origin xyz="0.25 0 0"/>
+        <origin xyz="0.0025 0 0" rpy="3.1415926 0 0"/>
         <geometry>
-            <mesh filename="unit.stl" scale="0.1 0.1 0.1"/>
+            <mesh filename="unit.stl" scale="0.001 0.001 0.001"/>
         </geometry>
         <contact_coefficients mu="0.8" />
     </collision>
-    <inertial>
-      <mass value=".5"/>
-      <inertia ixx="0.4" ixy="0.0" ixz="0.0" iyy="0.4" iyz="0.0" izz="0.2"/>
-    </inertial>
 </link>
 
 <link name="link2">
     <visual>
-        <origin xyz="0.25 0 0"/>
+        <origin xyz="0.0025 0 0" rpy="3.1415926 0 0"/>
         <geometry>
-            <mesh filename="unit.stl" scale="0.1 0.1 0.1"/>
+            <mesh filename="unit.stl" scale="0.001 0.001 0.001"/>
         </geometry>
         <material name="blue">
             <color rgba="0 0 .8 1"/>
         </material>
     </visual>
     <collision>
-        <origin xyz="0.25 0 0"/>
+        <origin xyz="0.0025 0 0" rpy="3.1415926 0 0"/>
         <geometry>
-            <mesh filename="unit.stl" scale="0.1 0.1 0.1"/>
+            <mesh filename="unit.stl" scale="0.001 0.001 0.001"/>
         </geometry>
         <contact_coefficients mu="0.8" />
     </collision>
-    <inertial>
-      <mass value=".5"/>
-      <inertia ixx="0.4" ixy="0.0" ixz="0.0" iyy="0.4" iyz="0.0" izz="0.2"/>
-    </inertial>
 </link>
 
 <joint name="joint01" type="revolute">
-    <origin xyz="2.25 0 0"/>
+    <origin xyz="0.0225 0 0"/>
     <parent link="base_link"/>
     <child link="link1"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-1.3" effort="300" velocity="1"/>
+    <limit lower="-.1" upper="1.3" effort="300" velocity="1"/>
 </joint>
 
 <joint name="joint12" type="revolute">
-    <origin xyz="2.5 0 0"/>
+    <origin xyz="0.025 0 0"/>
     <parent link="link1"/>
     <child link="link2"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-1.3" effort="300" velocity="1"/>
+    <limit lower="-.1" upper="1.3" effort="300" velocity="1"/>
 </joint>
 
 </robot>
