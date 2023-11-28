@@ -1,0 +1,22 @@
+<robot name="054_softball">
+	<link name="_name">
+		<visual>
+			<origin xyz="0.01964979410061078 -0.010882535862384666 -0.04681713398392472" rpy="0 0 0" />
+			<geometry>
+				<mesh filename="054_softball/google_16k/textured.obj" scale="1 1 1" />
+			</geometry>
+			<material name="texture">
+				<color rgba="1.0 1.0 1.0 1.0" />
+			</material>
+		</visual>
+		<collision>
+			<geometry>
+				<mesh filename="054_softball/google_16k/textured_vhacd.obj" scale="1 1 1" />
+			</geometry>
+		<origin xyz="0.01964979410061078 -0.010882535862384666 -0.04681713398392472" rpy="0 0 0" /></collision>
+		<inertial>
+			<mass value="1.0" />
+			<inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0" />
+		</inertial>
+	</link>
+</robot>
