@@ -1,3 +1,6 @@
+### self defined
+assets/ycb
+
 ### VisualStudioCode template
 .vscode/*
 !.vscode/settings.json
