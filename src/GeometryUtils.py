@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from scipy.linalg import null_space
 import math
@@ -54,27 +55,9 @@ class ContactPoints:
         self.nContact = len(fid)
         self.position = np.asarray([np.average(obj.faces[f], axis=0) for f in fid])
         self.normals = -np.asarray([obj.normals[f] / np.linalg.norm(obj.normals[f]) for f in fid])
-        # x1, y1, z1 = self.position[0]
-        # x2, y2, z2 = self.position[1]
-        # x3, y3, z3 = self.position[2]
         self.f = np.transpose(np.asarray([[0, 0, 1., 0, 0, 0]]))
-        # self.W = np.asarray([[1, 0, 0, 1, 0, 0, 1, 0, 0],
-        #                      [0, 1, 0, 0, 1, 0, 0, 1, 0],
-        #                      [0, 0, 1, 0, 0, 1, 0, 0, 1],
-        #                      [0, -z1, y1, 0, -z2, y2, 0, -z3, y3],
-        #                      [z1, 0, -x1, z2, 0, -x2, z3, 0, -x3],
-        #                      [-y1, x1, 0, -y2, x2, 0, -y3, x3, 0]])
         self.W = self._create_grasp_matrix()
         self.Omega = self.W @ self.W.T
-        # self.N = np.asarray([[x2 - x1, x3 - x1, 0],
-        #                      [y2 - y1, y3 - y1, 0],
-        #                      [z2 - z1, z3 - z1, 0],
-        #                      [x1 - x2, 0, x3 - x2],
-        #                      [y1 - y2, 0, y3 - y2],
-        #                      [z1 - z2, 0, z3 - z2],
-        #                      [0, x1 - x3, x2 - x3],
-        #                      [0, y1 - y3, y2 - y3],
-        #                      [0, z1 - z3, z2 - z3]])
         self.N = null_space(self.W)
         self.G = self.N.T @ self.N
         self._FE = self.W.T @ np.linalg.inv(self.Omega) @ self.f
@@ -108,11 +91,12 @@ class ContactPoints:
 
         objective = cp.Minimize((1 / 2) * cp.quad_form(lambdas, self.G) + self.K)
         problem = cp.Problem(objective, constraints)
-        problem.solve(solver=cp.ECOS)
+        problem.solve(solver=cp.SCS)
         if verbose:
             print("Status: %s" % problem.status)
             print("Optimal Value: %s" % problem.value)
             print("Force:\n %s" % F.value)
+            print("Solve time:", problem.solver_stats.solve_time)
         if problem.status not in ["infeasible", "unbounded"]:
             return F.value
         else:
@@ -141,11 +125,11 @@ class ContactPoints:
 
 if __name__ == "__main__":
     # test
-    stl_file = 'E:/SGLab/Dissertation/Gripper-Computational-Design/assets/Cube.stl'
+    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/google_16k/nontextured.stl")
     # stl_file = 'E:/SGLab/Dissertation/Gripper-Computational-Design/assets/StanfordBunny.stl'
     test_obj = GraspingObj(friction=0.4)
     test_obj.read_from_stl(stl_file)
     # cps = ContactPoints(test_obj, [31, 66, 99])
-    cps = ContactPoints(test_obj, np.arange(72).tolist())
+    cps = ContactPoints(test_obj, np.arange(0, 5000, 50).tolist())
     cps.calc_force(verbose=True)
-    cps.visualisation(vector_ratio=100)
+    cps.visualisation(vector_ratio=1)
