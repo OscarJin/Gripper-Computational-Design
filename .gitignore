@@ -1,6 +1,8 @@
 ### self defined
 assets/ycb/vhacd_log.txt
-*.mp4
+gripper_*.stl
+unit_*.stl
+finger_*.stl
 
 ### VisualStudioCode template
 .vscode/*
