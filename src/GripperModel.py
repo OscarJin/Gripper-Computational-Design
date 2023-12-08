@@ -5,6 +5,7 @@ import time
 import numpy as np
 import stl
 from stl import mesh
+import trimesh
 from typing import List
 
 
@@ -134,17 +135,17 @@ class Finger:
                 os.remove(u.filename)
 
     def assemble(self, bottom_thick=1.2, export=True):
+        # units
         totLength = self.units[0].gap
-        finger_vertices = self.units[0].vertices.copy()
-        finger_vertices[:, 0] += totLength
-        finger_faces = self.units[0].faces.copy()
-        for i in range(1, self.n_unit):
-            cur_vertices = self.units[i].vertices.copy()
-            totLength += self.units[i - 1].length + self.units[i].gap
-            cur_vertices[:, 0] += totLength
-            finger_vertices = np.concatenate((finger_vertices, cur_vertices), axis=0)
-            cur_faces = self.units[i].faces + self.units[i].vertices.shape[0] * i
-            finger_faces = np.concatenate((finger_faces, cur_faces), axis=0)
+        finger_meshes = []
+        for i in range(self.n_unit):
+            cur_v = self.units[i].vertices.copy()
+            if i != 0:
+                totLength += self.units[i - 1].length + self.units[i].gap
+            cur_v[:, 0] += totLength
+            cur_f = self.units[i].faces.copy()
+            cur_mesh = trimesh.Trimesh(vertices=cur_v, faces=cur_f)
+            finger_meshes.append(cur_mesh)
 
         totLength += self.units[-1].length
         bottom_width = self.units[0].width
@@ -160,20 +161,83 @@ class Finger:
                 [sub_length[i + 1], bottom_width / 2, 0],
                 [sub_length[i], bottom_width / 2, 0],
             ])
-            bottom_f = self.units[0].faces + self.units[0].vertices.shape[0] * self.n_unit + bottom_v.shape[0] * i
-            finger_vertices = np.concatenate((finger_vertices, bottom_v), axis=0)
-            finger_faces = np.concatenate((finger_faces, bottom_f), axis=0)
+            bottom_f = self.units[0].faces
+            bottom_mesh = trimesh.Trimesh(vertices=bottom_v, faces=bottom_f)
+            finger_meshes.append(bottom_mesh)
 
-        finger_mesh = mesh.Mesh(np.zeros(finger_faces.shape[0], dtype=mesh.Mesh.dtype))
-        for i, f in enumerate(finger_faces):
-            for j in range(3):
-                finger_mesh.vectors[i][j] = finger_vertices[f[j], :]
+        finger_mesh = trimesh.boolean.union(finger_meshes)
+
+        # trench
+        h1 = self.min_unit_height - 1.
+        h2 = self.max_unit_height
+        trench_w = 1.
+        trench_v = np.asarray([
+            [0, -trench_w / 2, h1],
+            [totLength, -trench_w / 2, h1],
+            [totLength, trench_w / 2, h1],
+            [0, trench_w / 2, h1],
+            [0, -trench_w / 2, h2],
+            [totLength, -trench_w / 2, h2],
+            [totLength, trench_w / 2, h2],
+            [0, trench_w / 2, h2],
+        ])
+        trench_f = self.units[0].faces.copy()
+        trench_mesh = trimesh.Trimesh(vertices=trench_v, faces=trench_f)
+
+        finger_mesh = trimesh.boolean.difference([finger_mesh, trench_mesh])
 
         if export:
             stl_file = os.path.join(os.path.abspath('..'), "assets/finger_" + self.id + ".stl")
-            finger_mesh.save(stl_file, mode=stl.Mode.ASCII)
+            finger_mesh.export(stl_file)
 
-        return finger_vertices, finger_faces
+        return finger_mesh
+
+    @property
+    def max_unit_height(self):
+        h_max = 0
+        for u in self.units:
+            h_max = max(u.height, h_max)
+        return h_max
+
+    @property
+    def min_unit_height(self):
+        h_min = self.units[0].height
+        for u in self.units:
+            h_min = min(u.height, h_min)
+        return h_min
+
+    @property
+    def total_length(self):
+        tot_l = self.units[0].gap
+        for i in range(1, self.n_unit):
+            tot_l += self.units[i - 1].length + self.units[i].gap
+        tot_l += self.units[-1].length
+        return tot_l
+
+    @property
+    def max_unit_width(self):
+        w_max = 0
+        for u in self.units:
+            w_max = max(u.width, w_max)
+        return w_max
+
+    def mask(self, extend=20.):
+        b_w = self.max_unit_width + extend * 2
+        b_l = self.total_length + extend
+        b_h = 15.
+        b_v = np.asarray([
+            [0, -b_w / 2, 0],
+            [b_l, -b_w / 2, 0],
+            [b_l, b_w / 2, 0],
+            [0, b_w / 2, 0],
+            [0, -b_w / 2, b_h],
+            [b_l, -b_w / 2, b_h],
+            [b_l, b_w / 2, b_h],
+            [0, b_w / 2, b_h],
+        ])
+        b_f = self.units[0].faces.copy()
+
+        return trimesh.Trimesh(vertices=b_v, faces=b_f)
 
 
 class FOAMGripper:
@@ -181,32 +245,28 @@ class FOAMGripper:
         self.n_finger = len(fingers)
         self.fingers = fingers
 
-    def assemble(self, export=True, bottom_thick=1.2, palm_height=10, palm_ratio=1.2):
-        gripper_v, gripper_f = self.fingers[0].assemble(bottom_thick=bottom_thick, export=False)
-        gripper_v = self.rotate(gripper_v, self.fingers[0].orientation)
-        for i in range(1, self.n_finger):
-            cur_v, cur_f = self.fingers[i].assemble(bottom_thick=bottom_thick, export=False)
+    def assemble(self, export=True, bottom_thick=1.2, palm_height=10., palm_ratio=1.2):
+        gripper_meshes = []
+        for i in range(self.n_finger):
+            cur_mesh = self.fingers[0].assemble(bottom_thick=bottom_thick, export=False)
+            cur_v = cur_mesh.vertices
             cur_v = self.rotate(cur_v, self.fingers[i].orientation)
-            cur_f += gripper_v.shape[0]
-            gripper_v = np.concatenate((gripper_v, cur_v), axis=0)
-            gripper_f = np.concatenate((gripper_f, cur_f), axis=0)
+            cur_f = cur_mesh.faces
+            cur_mesh = trimesh.Trimesh(vertices=cur_v, faces=cur_f)
+            gripper_meshes.append(cur_mesh)
 
         cylinder_v, cylinder_f = self.create_cylinder(radius=palm_ratio * self.min_distance_to_center,
                                                       z1=self.max_unit_height, z2=-palm_height)
-        cylinder_f += gripper_v.shape[0]
-        gripper_v = np.concatenate((gripper_v, cylinder_v), axis=0)
-        gripper_f = np.concatenate((gripper_f, cylinder_f), axis=0)
+        cylinder_mesh = trimesh.Trimesh(vertices=cylinder_v, faces=cylinder_f)
+        gripper_meshes.append(cylinder_mesh)
 
-        gripper_mesh = mesh.Mesh(np.zeros(gripper_f.shape[0], dtype=mesh.Mesh.dtype))
-        for i, f in enumerate(gripper_f):
-            for j in range(3):
-                gripper_mesh.vectors[i][j] = gripper_v[f[j], :]
+        gripper_mesh = trimesh.boolean.union(gripper_meshes)
 
         if export:
             stl_file = os.path.join(os.path.abspath('..'), "assets/gripper_" + _create_id() + ".stl")
-            gripper_mesh.save(stl_file, mode=stl.Mode.ASCII)
+            gripper_mesh.export(stl_file)
 
-        return gripper_v, gripper_f
+        return gripper_mesh
 
     @staticmethod
     def rotate(v, theta):
@@ -216,39 +276,34 @@ class FOAMGripper:
             [0, 0, 1]
         ])
         return v @ rotate_matrix.T
-        pass
 
     @staticmethod
-    def create_cylinder(radius, z1, z2=-10, resolution=100):
-        phi = np.linspace(0, 2 * np.pi, resolution)
-        z = np.linspace(z2, z1, resolution)
+    def create_cylinder(radius, z1, z2=-10., resolution=100):
+        phi = np.linspace(0, 2 * np.pi, resolution + 1)
+        phi = phi[: -1]
+        z = np.asarray([z2, z1])
         z_grid, phi_grid = np.meshgrid(z, phi)
 
         x = radius * np.cos(phi_grid)
         y = radius * np.sin(phi_grid)
-        vertices = np.vstack([x.flatten(), y.flatten(), z_grid.flatten()]).T
+        z = z_grid
+        side_v = np.vstack([x.flatten(), y.flatten(), z.flatten()]).T
+        top_v = np.asarray([0, 0, z1])
+        bottom_v = np.asarray([0, 0, z2])
+        vertices = np.vstack([side_v, top_v, bottom_v])
 
-        top_center = np.asarray([0, 0, z1])
-        bottom_center = np.asarray([0, 0, z2])
-        vertices = np.vstack([vertices, top_center, bottom_center])
+        side_f = []
+        for i in range(resolution):
+            v1 = i * 2
+            v2 = ((i + 1) % resolution) * 2
+            v3 = v2 + 1
+            v4 = v1 + 1
+            side_f.extend([[v1, v2, v3], [v3, v4, v1]])
 
-        # Generate the triangles
-        faces = []
-        for i in range(resolution - 1):
-            for j in range(resolution - 1):
-                v1 = i * resolution + j
-                v2 = (i + 1) * resolution + j
-                v3 = (i + 1) * resolution + j + 1
-                v4 = i * resolution + j + 1
-                faces.extend([[v1, v2, v3], [v3, v4, v1]])
+        bottom_f = [[i * 2, -1, ((i + 1) % resolution) * 2] for i in range(resolution)]
+        top_f = [[i * 2 + 1, ((i + 1) % resolution) * 2 + 1, -2] for i in range(resolution)]
 
-        v_num = vertices.shape[0]
-        faces_bottom = np.asarray([[i * resolution, ((i + 1) % resolution) * resolution, v_num - 1]
-                                   for i in range(resolution)])
-        faces_top = np.asarray([[(i + 1) * resolution - 1, ((i + 1) % resolution + 1) * resolution - 1, v_num - 2]
-                                for i in range(resolution)])
-
-        faces = np.vstack([faces, faces_top, faces_bottom])
+        faces = np.vstack([np.asarray(side_f), np.asarray(top_f), np.asarray(bottom_f)])
 
         return vertices, faces
 
@@ -271,14 +326,38 @@ class FOAMGripper:
         for i, f in enumerate(self.fingers):
             f.clean()
 
+    def seal_mask(self, export=True, extend=20., wall_thick=4.):
+        finger_masks = []
+        for f in self.fingers:
+            cur_mesh = f.mask(extend=extend)
+            cur_v = cur_mesh.vertices
+            cur_v = self.rotate(cur_v, f.orientation)
+            finger_masks.append(trimesh.Trimesh(vertices=cur_v, faces= cur_mesh.faces))
+        inner_mask = trimesh.boolean.union(finger_masks)
+
+        outer_v = inner_mask.vertices.copy()
+        outer_f = inner_mask.faces
+        for v in outer_v:
+            v[0] += wall_thick * np.sign(v[0])
+            v[1] += wall_thick * np.sign(v[1])
+        outer_mask = trimesh.Trimesh(vertices=outer_v, faces=outer_f)
+
+        mask = trimesh.boolean.difference([outer_mask, inner_mask])
+
+        if export:
+            stl_file = os.path.join(os.path.abspath('..'), "assets/gripper_mask_" + _create_id() + ".stl")
+            mask.export(stl_file)
+
+        return mask
+
 
 import pybullet as p
 import pybullet_data
 
 if __name__ == "__main__":
     # test
-    unit = Unit(20, 5, 20, np.pi / 3, np.pi / 3, 5)
-    unit_root = Unit(20, 5, 20, np.pi / 3, np.pi / 3, 15)
+    unit = Unit(20., 7.5, 20., np.pi / 3, np.pi / 3, 5.)
+    unit_root = Unit(20., 5., 20., np.pi / 3, np.pi / 3, 15.)
     finger_1 = Finger([unit_root, unit, unit], 0)
     finger_2 = Finger([unit_root, unit, unit], np.pi / 2)
     finger_3 = Finger([unit_root, unit, unit], np.pi)
@@ -335,4 +414,5 @@ if __name__ == "__main__":
     p.disconnect()
     gripper.clean()
 
-    gripper.assemble(bottom_thick=2.5)
+    # gripper.assemble(bottom_thick=1., palm_height=1.)
+    gripper.seal_mask()

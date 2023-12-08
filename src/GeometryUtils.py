@@ -130,6 +130,6 @@ if __name__ == "__main__":
     test_obj = GraspingObj(friction=0.4)
     test_obj.read_from_stl(stl_file)
     # cps = ContactPoints(test_obj, [31, 66, 99])
-    cps = ContactPoints(test_obj, np.arange(0, 5000, 50).tolist())
+    cps = ContactPoints(test_obj, np.arange(0, 5000, 200).tolist())
     cps.calc_force(verbose=True)
-    cps.visualisation(vector_ratio=1)
+    cps.visualisation(vector_ratio=.5)
