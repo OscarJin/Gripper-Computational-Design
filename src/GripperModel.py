@@ -168,9 +168,9 @@ class Finger:
         finger_mesh = trimesh.boolean.union(finger_meshes)
 
         # trench
-        h1 = self.min_unit_height - 1.
+        h1 = self.min_unit_height - 1.2
         h2 = self.max_unit_height
-        trench_w = 1.
+        trench_w = 1.2
         trench_v = np.asarray([
             [0, -trench_w / 2, h1],
             [totLength, -trench_w / 2, h1],
@@ -221,7 +221,7 @@ class Finger:
             w_max = max(u.width, w_max)
         return w_max
 
-    def mask(self, extend=20.):
+    def mask(self, extend=10.):
         b_w = self.max_unit_width + extend * 2
         b_l = self.total_length + extend
         b_h = 15.
@@ -244,6 +244,7 @@ class FOAMGripper:
     def __init__(self, fingers: List[Finger]):
         self.n_finger = len(fingers)
         self.fingers = fingers
+        self.id = _create_id()
 
     def assemble(self, export=True, bottom_thick=1.2, palm_height=10., palm_ratio=1.2):
         gripper_meshes = []
@@ -263,7 +264,7 @@ class FOAMGripper:
         gripper_mesh = trimesh.boolean.union(gripper_meshes)
 
         if export:
-            stl_file = os.path.join(os.path.abspath('..'), "assets/gripper_" + _create_id() + ".stl")
+            stl_file = os.path.join(os.path.abspath('..'), "assets/gripper_" + self.id + ".stl")
             gripper_mesh.export(stl_file)
 
         return gripper_mesh
@@ -326,26 +327,28 @@ class FOAMGripper:
         for i, f in enumerate(self.fingers):
             f.clean()
 
-    def seal_mask(self, export=True, extend=20., wall_thick=4.):
-        finger_masks = []
+    def seal_mask(self, export=True, extend=10., wall_thick=4.):
+        inner_masks = []
         for f in self.fingers:
             cur_mesh = f.mask(extend=extend)
             cur_v = cur_mesh.vertices
             cur_v = self.rotate(cur_v, f.orientation)
-            finger_masks.append(trimesh.Trimesh(vertices=cur_v, faces= cur_mesh.faces))
-        inner_mask = trimesh.boolean.union(finger_masks)
+            inner_masks.append(trimesh.Trimesh(vertices=cur_v, faces=cur_mesh.faces))
+        inner_mask = trimesh.boolean.union(inner_masks)
 
-        outer_v = inner_mask.vertices.copy()
-        outer_f = inner_mask.faces
-        for v in outer_v:
-            v[0] += wall_thick * np.sign(v[0])
-            v[1] += wall_thick * np.sign(v[1])
-        outer_mask = trimesh.Trimesh(vertices=outer_v, faces=outer_f)
+        outer_masks = []
+        for f in self.fingers:
+            cur_mesh = f.mask(extend=extend + wall_thick)
+            cur_v = cur_mesh.vertices
+            cur_v = self.rotate(cur_v, f.orientation)
+            outer_masks.append(trimesh.Trimesh(vertices=cur_v, faces=cur_mesh.faces))
+
+        outer_mask = trimesh.boolean.union(outer_masks)
 
         mask = trimesh.boolean.difference([outer_mask, inner_mask])
 
         if export:
-            stl_file = os.path.join(os.path.abspath('..'), "assets/gripper_mask_" + _create_id() + ".stl")
+            stl_file = os.path.join(os.path.abspath('..'), "assets/gripper_mask_" + self.id + ".stl")
             mask.export(stl_file)
 
         return mask
@@ -356,13 +359,14 @@ import pybullet_data
 
 if __name__ == "__main__":
     # test
-    unit = Unit(20., 7.5, 20., np.pi / 3, np.pi / 3, 5.)
-    unit_root = Unit(20., 5., 20., np.pi / 3, np.pi / 3, 15.)
+    unit = Unit(20., 7.5, 15., np.pi / 3, np.pi / 3, 5.)
+    unit_root = Unit(20., 7.5, 15., np.pi / 3, np.pi / 3, 15.)
     finger_1 = Finger([unit_root, unit, unit], 0)
-    finger_2 = Finger([unit_root, unit, unit], np.pi / 2)
-    finger_3 = Finger([unit_root, unit, unit], np.pi)
-    finger_4 = Finger([unit_root, unit, unit], -np.pi / 2)
-    gripper = FOAMGripper([finger_1, finger_2, finger_3, finger_4])
+    finger_2 = Finger([unit_root, unit, unit], np.pi * .4)
+    finger_3 = Finger([unit_root, unit, unit], np.pi * .8)
+    finger_4 = Finger([unit_root, unit, unit], np.pi * 1.2)
+    finger_5 = Finger([unit_root, unit, unit], np.pi * 1.6)
+    gripper = FOAMGripper([finger_1, finger_2, finger_3, finger_4, finger_5])
 
     physicsClient = p.connect(p.GUI)
     p.setRealTimeSimulation(0)
@@ -372,7 +376,7 @@ if __name__ == "__main__":
     planeId = p.loadURDF("plane.urdf")
 
     finger_id = []
-    for i, f in enumerate(gripper.fingers):
+    for f in gripper.fingers:
         startPos = [0, 0., .05]
         startOrientation = p.getQuaternionFromEuler([0, 0, f.orientation])
         f_id = p.loadURDF(f.filename, startPos, startOrientation, useFixedBase=1,
