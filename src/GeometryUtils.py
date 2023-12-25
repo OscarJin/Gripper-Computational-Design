@@ -8,9 +8,10 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from typing import List
 import cvxpy as cp
+from scipy.spatial import ConvexHull, Delaunay
 
 
-class GraspingObj:
+class GraspingObj(object):
     def __init__(self, friction=.4):
         self._mesh = None
         self.faces = None
@@ -23,9 +24,18 @@ class GraspingObj:
         self._mesh = mesh.Mesh.from_file(filename)
         self.faces = self._mesh.vectors
         self.normals = self._mesh.normals
-        self._cog = self.calc_cog()
 
-    def calc_cog(self):
+        zero_norm_i = []
+        for i, n in enumerate(self.normals):
+            if np.linalg.norm(n) < 1e-6:
+                zero_norm_i.append(i)
+        self.faces = np.delete(self.faces, zero_norm_i, axis=0)
+        self.normals = np.delete(self.normals, zero_norm_i, axis=0)
+
+        self._cog = self.center_of_mass
+
+    @property
+    def center_of_mass(self):
         volume = 0.
         center = np.asarray([0, 0, 0], dtype=float)
         for i in range(0, self.faces.shape[0]):
@@ -47,15 +57,19 @@ class GraspingObj:
         # plt.axis('off')
         plt.show()
 
+    @property
+    def num_faces(self) -> int:
+        return self.faces.shape[0]
 
-class ContactPoints:
+
+class ContactPoints(object):
     def __init__(self, obj: GraspingObj, fid: List[int]):
         self._obj = obj
         self._fid = fid
         self.nContact = len(fid)
         self.position = np.asarray([np.average(obj.faces[f], axis=0) for f in fid])
-        self.normals = -np.asarray([obj.normals[f] / np.linalg.norm(obj.normals[f]) for f in fid])
-        self.f = np.transpose(np.asarray([[0, 0, 1., 0, 0, 0]]))
+        self.normals = -np.asarray([obj.normals[f] / np.linalg.norm(obj.normals[f]) for f in fid])  # inner
+        self.f = np.transpose(np.asarray([[0, 0, 9.8, 0, 0, 0]]))
         self.W = self._create_grasp_matrix()
         self.Omega = self.W @ self.W.T
         self.N = null_space(self.W)
@@ -78,7 +92,8 @@ class ContactPoints:
         return W
 
     def calc_force(self, verbose=False):
-        lambdas = cp.Variable([3 * (self.nContact - 2), 1])
+        # lambdas = cp.Variable((3 * (self.nContact - 2), 1))
+        lambdas = cp.Variable((self.G.shape[1], 1))
         F = self._FE + self.N @ lambdas
 
         constraints = []
@@ -98,7 +113,7 @@ class ContactPoints:
             print("Force:\n %s" % F.value)
             print("Solve time:", problem.solver_stats.solve_time)
         if problem.status not in ["infeasible", "unbounded"]:
-            return F.value
+            return np.reshape(F.value, (self.nContact, 3))
         else:
             return None
 
@@ -116,20 +131,78 @@ class ContactPoints:
         if self.F is not None:
             for i in range(self.nContact):
                 ax.quiver(x[i], y[i], z[i],
-                          self.F[i * 3] * vector_ratio,
-                          self.F[i * 3 + 1] * vector_ratio,
-                          self.F[i * 3 + 2] * vector_ratio,
+                          self.F[i][0] * vector_ratio,
+                          self.F[i][1] * vector_ratio,
+                          self.F[i][2] * vector_ratio,
                           arrow_length_ratio=0.2)
         plt.show()
+
+    @property
+    def q_fcl(self):
+        min_alpha = np.inf
+        if self.F is not None:
+            for i in range(self.nContact):
+                fi = self.F[i]
+                ni = self.normals[i]
+                norm_f = np.linalg.norm(fi)
+                norm_n = np.linalg.norm(ni)
+                cos_a = fi.dot(ni) / (norm_f * norm_n)
+                min_alpha = min(min_alpha, np.arccos(cos_a))
+        else:
+            min_alpha = 0.
+
+        return min_alpha
+
+    @property
+    def q_vgp(self):
+        if self.nContact == 3:
+            N = np.cross(self.position[1] - self.position[0], self.position[2] - self.position[0])
+            return 0.5 * np.linalg.norm(N)
+
+        hull = ConvexHull(self.position)
+        return hull.volume
+
+    @property
+    def q_dcc(self):
+        if self.nContact == 3:
+            N = np.cross(self.position[1] - self.position[0], self.position[2] - self.position[0])
+            if np.linalg.norm(N) < 1e-6:
+                center = np.mean(self.position, axis=0)
+                return np.linalg.norm(self._obj.center_of_mass - center)
+            N /= np.linalg.norm(N)
+            proj = (self._obj.center_of_mass - self.position[0]).dot(N)
+            return np.linalg.norm(proj)
+
+        T = Delaunay(self.position).simplices
+        n = T.shape[0]
+        W = 0.
+        C = 0.
+
+        for m in range(n):
+            sp = self.position[T[m, :], :]
+            w = ConvexHull(sp).volume
+            C += w * np.mean(sp, axis=0)
+            W += w
+
+        center = C / W
+        dist = center - self._obj.center_of_mass
+        return np.linalg.norm(dist)
 
 
 if __name__ == "__main__":
     # test
     stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/google_16k/nontextured.stl")
-    # stl_file = 'E:/SGLab/Dissertation/Gripper-Computational-Design/assets/StanfordBunny.stl'
     test_obj = GraspingObj(friction=0.4)
     test_obj.read_from_stl(stl_file)
+    print(test_obj.num_faces)
     # cps = ContactPoints(test_obj, [31, 66, 99])
-    cps = ContactPoints(test_obj, np.arange(0, 5000, 200).tolist())
+    cps = ContactPoints(test_obj, np.arange(0, 5000, 1000).tolist())
     cps.calc_force(verbose=True)
     cps.visualisation(vector_ratio=.5)
+    print(np.rad2deg(cps.q_fcl))
+    print(cps.q_vgp)
+    print(cps.q_dcc)
+    print(test_obj.num_faces)
+    for i, n in enumerate(test_obj.normals):
+        if np.abs(np.linalg.norm(n)) < 1e-6:
+            print(i, n, test_obj.faces[i])
