@@ -7,6 +7,8 @@ import copy
 from typing import List
 from concurrent import futures
 from scipy.spatial._qhull import QhullError
+import matplotlib.pyplot as plt
+import warnings
 
 
 class Chromosome(object):
@@ -27,7 +29,7 @@ class ContactPointsGA(object):
             generations=100,
             cross_prob=.9,
             mutation_factor=.5,
-            elitism=True,
+            adaptive=False,
             maximizeFitness=True,
             verbose=False,
             random_state=None,
@@ -39,11 +41,16 @@ class ContactPointsGA(object):
 
         self._population_size = population_size
         self._generations = generations
+        self._generations_stop = generations
         self._cross_prob = cross_prob
+        self._mutation_factor_0 = mutation_factor
         self._mutation_factor = mutation_factor
-        self._elitism = elitism
+        self._adaptive = adaptive
 
         self._cur_generation: List[Chromosome] = []
+        self._history_fitness = []
+        self._history_fitness_avg = []
+        self._history_fitness_std = []
 
         self._max_fitness = maximizeFitness
 
@@ -51,18 +58,16 @@ class ContactPointsGA(object):
         self._random = random.Random(random_state)
 
     def fitness(self, gene):
+        cps = ContactPoints(obj=self._graspObj, fid=gene)
+        if cps.F is None:
+            return 0.
+        if cps.is_too_low:
+            return 0.
+
         try:
-            cps = ContactPoints(obj=self._graspObj, fid=gene)
-        except np.linalg.LinAlgError:
-            return 0
-        else:
-            if cps.F is None:
-                return 0.
-            else:
-                try:
-                    return 2 * cps.q_fcl + cps.q_vgp - cps.q_dcc
-                except QhullError:
-                    return 0.
+            return 2 * cps.q_fcl + cps.q_vgp - cps.q_dcc + .5 * cps.ferrari_canny
+        except QhullError:
+            return 0.
 
     def create_individual(self):
         """create an individual randomly"""
@@ -80,6 +85,8 @@ class ContactPointsGA(object):
         # crossover
         trial = np.where(np.random.rand(self._numContact) <= self._cross_prob,
                          mutant, np.asarray(self._cur_generation[ind].genes)).astype(int)
+        j_rand = self._random.choice(range(self._numContact))
+        trial[j_rand] = mutant[j_rand]      # ensure crossover
         trial = np.clip(trial, self._lower_bound, self._upper_bound - 1)
         trial = np.unique(trial)
         if trial.shape[0] < self._numContact:
@@ -135,7 +142,6 @@ class ContactPointsGA(object):
     def create_new_population(self, n_workers=None, parallel_type="processing"):
         """create a new population using selection, mutation and crossover"""
         new_population = []
-        elite = copy.deepcopy(self._cur_generation[0])
 
         if n_workers == 1:
             for i in range(self._population_size):
@@ -148,9 +154,6 @@ class ContactPointsGA(object):
 
             with executor as pool:
                 new_population = list(pool.map(self.create_new_individual, range(self._population_size)))
-
-        if self._elitism:
-            new_population[0] = elite
 
         self._cur_generation = new_population
 
@@ -166,12 +169,54 @@ class ContactPointsGA(object):
         if self._verbose:
             print("Fitness: %f" % self.best_individual[0])
 
+    def check_convergence(self, std):
+        if std < .05 * self.best_individual[0]:
+            return True
+        else:
+            return False
+
     def run(self, n_workers=None, parallel_type="processing"):
         """solve the GA"""
         self.create_first_generation(n_workers=n_workers, parallel_type=parallel_type)
+        # for visualisation
+        fits = [ind.fitness for ind in self._cur_generation]
+        avg = np.mean(fits)
+        std = np.std(fits)
+        self._history_fitness.append(self.best_individual[0])
+        self._history_fitness_avg.append(avg)
+        self._history_fitness_std.append(std)
 
-        for _ in range(1, self._generations):
+        for g in range(1, self._generations):
+            if self._adaptive:
+                self._mutation_factor = (self._mutation_factor_0 *
+                                         np.power(2, np.exp(1 - self._generations / (self._generations + 1 - g))))
+            if self._verbose:
+                print(f'Generation: {g} Mutation: {self._mutation_factor}', end=" ")
             self.create_next_generation(n_workers=n_workers, parallel_type=parallel_type)
+
+            # for visualisation
+            fits = [ind.fitness for ind in self._cur_generation]
+            avg = np.mean(fits)
+            std = np.std(fits)
+            self._history_fitness.append(self.best_individual[0])
+            self._history_fitness_avg.append(avg)
+            self._history_fitness_std.append(std)
+
+            if self.check_convergence(std):
+                self._generations_stop = g + 1
+                break
+
+    def visualisation(self):
+        plt.figure(dpi=300)
+        plt.plot(range(self._generations_stop), self._history_fitness, color='r', linewidth=1.5)
+        plt.plot(range(self._generations_stop), self._history_fitness_avg, color='b', linewidth=1.5)
+        r1 = list(map(lambda x: x[0] - x[1], zip(self._history_fitness_avg, self._history_fitness_std)))
+        r2 = list(map(lambda x: x[0] + x[1], zip(self._history_fitness_avg, self._history_fitness_std)))
+        plt.fill_between(range(self._generations_stop), r1, r2, color='b', alpha=0.2)
+        # plt.xticks(range(self._generations), range(1, self._generations + 1))
+        plt.xlabel('Generations')
+        plt.ylabel('Fitness')
+        plt.show()
 
     @property
     def best_individual(self):
@@ -185,14 +230,13 @@ class ContactPointsGA(object):
 
 import os
 from mpl_toolkits import mplot3d
-import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import time
 from itertools import combinations
 
 if __name__ == "__main__":
     # test
-    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/google_16k/nontextured.stl")
+    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/google_16k/nontextured.stl")
     # stl_file = os.path.join(os.path.abspath('..'), "assets/Cube.stl")
     test_obj = GraspingObj(friction=0.4)
     test_obj.read_from_stl(stl_file)
@@ -203,15 +247,17 @@ if __name__ == "__main__":
     # fs = np.arange(0.4, 0.9, 0.1)
     # CR, F = np.meshgrid(crs, fs)
     # bests = np.zeros(CR.shape)
+    # cnt = 0
     # for i in range(CR.shape[0]):
     #     for j in range(CR.shape[1]):
     #         ga = ContactPointsGA(test_obj, 4, cross_prob=CR[i][j], mutation_factor=F[i][j],
-    #                              population_size=30, generations=20, verbose=False)
-    #         ga.run()
-    #         print(ga.best_individual)
+    #                              population_size=30, generations=50, verbose=False)
+    #         ga.run(n_workers=8)
+    #         cnt += 1
+    #         print(cnt, ga.best_individual)
     #         bests[i][j] = ga.best_individual[0]
     #
-    # figure = plt.figure()
+    # figure = plt.figure(dpi=300)
     # ax = figure.add_axes(mplot3d.Axes3D(figure))
     # ax.plot_surface(CR, F, bests, cmap='cool')
     # ax.set_xlabel('Crossover Probability')
@@ -221,23 +267,13 @@ if __name__ == "__main__":
 
     # single test
     t1 = time.time()
-    ga = ContactPointsGA(test_obj, 4, population_size=30, generations=20, verbose=True)
+    ga = ContactPointsGA(test_obj, 4, cross_prob=.6, mutation_factor=.7, maximizeFitness=True,
+                         population_size=100, generations=100, verbose=True, adaptive=True)
     ga.run(n_workers=8)
     t2 = time.time()
     print(f"Elapsed time: {t2 - t1} seconds")
     print(ga.best_individual)
+    ga.visualisation()
     bestCP = ContactPoints(test_obj, ga.best_individual[1])
     bestCP.calc_force(verbose=True)
-    bestCP.visualisation(vector_ratio=.5)
-
-    """enumerate Cube.stl 1324.5218"""
-    # maxFitness = 0.
-    # for i in range(test_obj.num_faces - 2):
-    #     for j in range(i + 1, test_obj.num_faces - 1):
-    #         for k in range(j + 1, test_obj.num_faces):
-    #             cur_fitness = ga.fitness([i, j, k])
-    #             if cur_fitness > maxFitness:
-    #                 print(f'Fitness: {cur_fitness}')
-    #                 maxFitness = cur_fitness
-    #
-    # print(f'Optimal Fitness: {maxFitness}')
+    bestCP.visualisation(vector_ratio=.2)

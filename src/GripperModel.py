@@ -423,15 +423,15 @@ import pybullet_data
 
 if __name__ == "__main__":
     # test
-    unit_root = Unit(20., 16, 20., np.pi / 3, np.pi / 3, 15.)
-    unit = Unit(20., 16, 20., np.pi / 3, np.pi / 3, 2.5)
-    unit_end = Unit(25., 16, 20., np.pi / 3, np.pi / 3, 2.5)
+    unit_root = Unit(20., 15, 20., np.pi / 3, np.pi / 3, 15.)
+    unit = Unit(20., 15, 20., np.pi / 3, np.pi / 3, 2.5)
+    unit_end = Unit(25., 15, 20., np.pi / 3, np.pi / 3, 2.5)
     finger_1 = Finger([unit_root, unit, unit, unit_end], 0)
-    finger_2 = Finger([unit_root, unit, unit, unit_end], np.pi)
+    finger_2 = Finger([unit_root, unit, unit, unit_end], np.pi / 2)
     finger_3 = Finger([unit_root, unit, unit, unit_end], np.pi)
     finger_4 = Finger([unit_root, unit, unit, unit_end], -np.pi / 2)
     # finger_5 = Finger([unit_root, unit, unit_end], np.pi * 1.6)
-    gripper = FOAMGripper([finger_1, finger_2])
+    gripper = FOAMGripper([finger_1, finger_2, finger_3, finger_4])
 
     # begin pybullet test
     physicsClient = p.connect(p.GUI)
@@ -493,4 +493,4 @@ if __name__ == "__main__":
     # end pybullet test
 
     gripper.assemble(bottom_thick=1.2)
-    # gripper.seal_mask()
+    gripper.seal_mask()
