@@ -11,6 +11,7 @@ import cvxpy as cp
 from scipy.spatial import ConvexHull, Delaunay
 from queue import PriorityQueue as PQ
 from concurrent import futures
+from tqdm import tqdm
 import warnings
 
 
@@ -147,6 +148,9 @@ class GraspingObj(object):
                     return True
         return False
 
+    def get_point_ind(self, p) -> int:
+        return int(np.where(np.all(np.abs(self.vertices - p) < 1e-6, axis=1))[0][0])
+
     def compute_connectivity_from(self, origin):
         class VertexInfo(object):
             def __init__(self, id, dist):
@@ -173,10 +177,13 @@ class GraspingObj(object):
                 dist[i] = np.linalg.norm(v - origin)
                 parent[i] = -1
                 q.put(VertexInfo(i, dist[i]))
-                print(f"{i}, ok")
 
         with futures.ThreadPoolExecutor(max_workers=8) as executor:
-            _ = [executor.submit(calc_start_dist, i, v) for i, v in enumerate(self.vertices)]
+            tasks = [executor.submit(calc_start_dist, i, v) for i, v in enumerate(self.vertices)]
+
+            for _ in tqdm(futures.as_completed(tasks), total=len(tasks),
+                          desc="Computing connectivity from end effector"):
+                pass
 
         # for i, v in enumerate(self.vertices):
         #     direction = v - origin
@@ -190,9 +197,9 @@ class GraspingObj(object):
         for i, f in enumerate(self.faces):
             for j in range(3):
                 u = f[j]
-                u_id = np.where(np.all(self.vertices == u, axis=1))[0][0]
+                u_id = self.get_point_ind(u)
                 v = f[(j + 1) % 3]
-                v_id = np.where(np.all(self.vertices == v, axis=1))[0][0]
+                v_id = self.get_point_ind(v)
                 edges[u_id].append(EdgeInfo(v_id, np.linalg.norm(v - u)))
 
         # Dijkstra
@@ -207,6 +214,20 @@ class GraspingObj(object):
 
         self.dist = dist
         self.parent = parent
+
+    def compute_closest_point(self, fid: int) -> int:
+        center = np.average(self.faces[fid], axis=0)
+        dists = np.asarray([np.linalg.norm(center - self.faces[fid][i]) for i in range(3)])
+        min_i = np.argmax(dists)
+        v_id = self.get_point_ind(self.faces[fid][min_i])
+        return int(v_id)
+
+    def compute_vertex_normal(self, vid: int):
+        face_ind = np.where(np.all(np.abs(self.faces - self.vertices[vid]) < 1e-5, axis=2))[0]
+        normal = self.normals[face_ind]
+        v_n = np.average(normal, axis=0)
+        v_n /= np.linalg.norm(v_n)
+        return v_n
 
 
 class ContactPoints(object):
@@ -353,12 +374,19 @@ class ContactPoints(object):
 
     @property
     def is_too_low(self):
-        h_threshold = self._obj.minHeight + self._obj.height * .1
+        h_threshold = self._obj.minHeight + self._obj.height * .3
         for p in self.position:
             if p[2] < h_threshold:
                 return True
-
         return False
+
+    @property
+    def obj(self) -> GraspingObj:
+        return self._obj
+
+    @property
+    def fid(self) -> List[int]:
+        return self._fid
 
 
 if __name__ == "__main__":
@@ -379,5 +407,9 @@ if __name__ == "__main__":
     # direction = (np.average(test_obj.faces[5], axis=0) - start) * 1.5
     # print(test_obj.intersect_segment(start, direction))
 
-    end_effector_pos = np.asarray([test_obj.center_of_mass[0], test_obj.center_of_mass[1], test_obj.maxHeight + .1])
-    test_obj.compute_connectivity_from(end_effector_pos)
+    # end_effector_pos = np.asarray([test_obj.center_of_mass[0], test_obj.center_of_mass[1], test_obj.maxHeight + .1])
+    # test_obj.compute_connectivity_from(end_effector_pos)
+
+    p_id = test_obj.compute_closest_point(cps.fid[0])
+    print(p_id, test_obj.vertices[p_id])
+    print(test_obj.compute_vertex_normal(593))

@@ -8,6 +8,7 @@ from typing import List
 from concurrent import futures
 from scipy.spatial._qhull import QhullError
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 import warnings
 
 
@@ -186,7 +187,8 @@ class ContactPointsGA(object):
         self._history_fitness_avg.append(avg)
         self._history_fitness_std.append(std)
 
-        for g in range(1, self._generations):
+        for g in tqdm(range(1, self._generations),
+                      desc="Searching optimal grasping contacts"):
             if self._adaptive:
                 self._mutation_factor = (self._mutation_factor_0 *
                                          np.power(2, np.exp(1 - self._generations / (self._generations + 1 - g))))
@@ -236,8 +238,7 @@ from itertools import combinations
 
 if __name__ == "__main__":
     # test
-    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/google_16k/nontextured.stl")
-    # stl_file = os.path.join(os.path.abspath('..'), "assets/Cube.stl")
+    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
     test_obj = GraspingObj(friction=0.4)
     test_obj.read_from_stl(stl_file)
     print(f'Faces: {test_obj.num_faces}')
@@ -267,8 +268,8 @@ if __name__ == "__main__":
 
     # single test
     t1 = time.time()
-    ga = ContactPointsGA(test_obj, 4, cross_prob=.6, mutation_factor=.7, maximizeFitness=True,
-                         population_size=100, generations=100, verbose=True, adaptive=True)
+    ga = ContactPointsGA(test_obj, 4, cross_prob=.6, mutation_factor=.6, maximizeFitness=True,
+                         population_size=100, generations=100, verbose=False, adaptive=True)
     ga.run(n_workers=8)
     t2 = time.time()
     print(f"Elapsed time: {t2 - t1} seconds")
