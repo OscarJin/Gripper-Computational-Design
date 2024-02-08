@@ -1,10 +1,6 @@
 from GeometryUtils import GraspingObj, ContactPoints
 import numpy as np
 from typing import List
-import os
-from mpl_toolkits import mplot3d
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 
 def should_pop(a, c, obj: GraspingObj) -> bool:
@@ -89,33 +85,40 @@ def initialize_finger_skeleton(fid: int, obj: GraspingObj, effector_pos, n_finge
     return finger
 
 
-def initialize_fingers(cps: ContactPoints, effector_pos, n_finger_joints: int):
-    cps.obj.compute_connectivity_from(effector_pos)
+def initialize_fingers(cps: ContactPoints, effector_pos, n_finger_joints: int, expand_dist=.02):
+    if cps.obj.effector_pos is None or not np.all(np.isclose(cps.obj.effector_pos, effector_pos)):
+        cps.obj.compute_connectivity_from(effector_pos)
 
     res = np.empty([cps.nContact, n_finger_joints + 1, 3])
     for i in range(cps.nContact):
-        res[i] = initialize_finger_skeleton(cps.fid[i], cps.obj, effector_pos, n_finger_joints)
+        res[i] = initialize_finger_skeleton(cps.fid[i], cps.obj, effector_pos, n_finger_joints, expand_dist)
     return res
 
 
-def initialize_gripper(cps: ContactPoints, effector_pos, n_finger_joints: int):
-    fingers = initialize_fingers(cps, effector_pos, n_finger_joints)
+def compute_skeleton(finger_skeletons, cps:ContactPoints, effector_pos, n_finger_joints: int):
     L = np.full([cps.nContact, n_finger_joints], np.nan, dtype=float)
-    angle = np.full([cps.nContact, n_finger_joints - 1], np.nan, dtype=float)
+    angle = np.full([cps.nContact, n_finger_joints], np.nan, dtype=float)
     ori = np.empty(cps.nContact, dtype=float)
-
-    for i, f in enumerate(fingers):
+    for i, f in enumerate(finger_skeletons):
         n_joints = np.sum(~np.isnan(f).any(axis=1))
         for j in range(1, n_joints)[::-1]:
-            L[i][-j] = np.linalg.norm(f[j - 1] - f[j])
-        for j in range(1, n_joints - 1)[::-1]:
-            a = f[j + 1] - f[j]
-            b = f[j - 1] - f[j]
+            L[i][-j] = np.linalg.norm(f[j - 1] - f[j]) * 1000      # mm
+        for j in range(2, n_joints)[::-1]:
+            a = f[j] - f[j - 1]
+            b = f[j - 2] - f[j - 1]
             angle[i][-j] = np.arccos(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+        gc_n = cps.obj.normals[cps.fid[i]] / np.linalg.norm(cps.obj.normals[cps.fid[i]])   # outer
+        angle[i][-1] = np.arcsin(np.dot(f[1] - f[0], gc_n) / np.linalg.norm(f[1] - f[0])) * 1.2
+
         v_ori = f[0][:-1] - effector_pos[:-1]
         ori[i] = np.arctan2(v_ori[1], v_ori[0])
+    return L, angle, ori
 
-    return fingers, L, angle, ori
+
+import os
+from mpl_toolkits import mplot3d
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 
 if __name__ == "__main__":
@@ -124,9 +127,10 @@ if __name__ == "__main__":
     test_obj.read_from_stl(stl_file)
     cps = ContactPoints(test_obj, [176, 306, 959, 2036])
     end_effector_pos = np.asarray([test_obj.center_of_mass[0], test_obj.center_of_mass[1], test_obj.maxHeight + .02])
-    # fingers = initialize_fingers(cps, end_effector_pos, 4)
-    fingers, Ls, angles, oris = initialize_gripper(cps, end_effector_pos, 4)
-    print(Ls, angles, oris)
+    test_obj.compute_connectivity_from(end_effector_pos)
+    skeletons = initialize_fingers(cps, end_effector_pos, 4)
+    Ls, angles, oris = compute_skeleton(skeletons, cps, end_effector_pos, 4)
+    # print(Ls, angles, oris)
 
     # visualization
     figure = plt.figure(dpi=300)
@@ -136,8 +140,8 @@ if __name__ == "__main__":
     ax.auto_scale_xyz(scale, scale, scale)
     for i in range(cps.nContact):
         for j in range(4):
-            x = [fingers[i][j][0], fingers[i][j + 1][0]]
-            y = [fingers[i][j][1], fingers[i][j + 1][1]]
-            z = [fingers[i][j][2], fingers[i][j + 1][2]]
+            x = [skeletons[i][j][0], skeletons[i][j + 1][0]]
+            y = [skeletons[i][j][1], skeletons[i][j + 1][1]]
+            z = [skeletons[i][j][2], skeletons[i][j + 1][2]]
             ax.plot(x, y, z, c='r', linewidth=1., marker='.')
     plt.show()

@@ -3,6 +3,7 @@ assets/ycb/vhacd_log.txt
 gripper_*.stl
 unit_*.stl
 finger_*.stl
+finger_*.urdf
 
 ### VisualStudioCode template
 .vscode/*

@@ -30,6 +30,7 @@ class GraspingObj(object):
         # for compute connectivity
         self.dist = None
         self.parent = None
+        self.effector_pos = None
 
     def read_from_stl(self, filename):
         self._mesh = mesh.Mesh.from_file(filename)
@@ -165,6 +166,7 @@ class GraspingObj(object):
                 self.id = id
                 self.dist = dist
 
+        self.effector_pos = origin
         dist = np.full(self.num_vertices, np.inf, dtype=float)
         parent = np.full(self.num_vertices, -2, dtype=int)
         edges: List[List[EdgeInfo]] = [[] for _ in range(self.num_vertices)]

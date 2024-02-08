@@ -4,11 +4,12 @@ import time
 
 import math
 import numpy as np
-from scipy.optimize import fsolve
 import stl
 from stl import mesh
 import trimesh
 from typing import List
+from GripperInitialization import initialize_fingers, compute_skeleton
+from GeometryUtils import ContactPoints
 
 
 def _create_id():
@@ -24,6 +25,10 @@ class Unit:
         self.theta1 = theta1
         self.theta2 = theta2
         self.gap = gap
+
+        # clamp height
+        if self.length - self.height / np.tan(self.theta1) - self.height / np.tan(self.theta2) < 0:
+            self.height = self.length / (1 / np.tan(self.theta1) + 1 / np.tan(self.theta2)) - .4
 
         # define 8 vertices
         self.vertices = np.asarray([
@@ -282,15 +287,16 @@ class FOAMGripper:
     def assemble(self, export=True, bottom_thick=1.2, palm_ratio=1.2):
         gripper_meshes = []
         for i in range(self.n_finger):
-            cur_mesh = self.fingers[0].assemble(bottom_thick=bottom_thick, export=False)
+            cur_mesh = self.fingers[i].assemble(bottom_thick=bottom_thick, export=False)
             cur_v = cur_mesh.vertices
             cur_v = self.rotate(cur_v, self.fingers[i].orientation)
             cur_f = cur_mesh.faces
             cur_mesh = trimesh.Trimesh(vertices=cur_v, faces=cur_f)
             gripper_meshes.append(cur_mesh)
 
+        # palm
         t_h = min(3., self.min_unit_height - 1.)
-        hPalm = t_h + 2.
+        hPalm = self.min_unit_height
         r_palm = palm_ratio * self.min_distance_to_center
         cylinder_v, cylinder_f = self.create_cylinder(radius=r_palm, z1=hPalm, z2=-bottom_thick)
         cylinder_mesh = trimesh.Trimesh(vertices=cylinder_v, faces=cylinder_f)
@@ -418,35 +424,71 @@ class FOAMGripper:
         return mask
 
 
+def initialize_gripper(
+        cps: ContactPoints, effector_pos,
+        n_finger_joints: int,
+        height=20.,
+        width=20.,
+        gap=2.,
+):
+    finger_skeletons = initialize_fingers(cps, effector_pos, n_finger_joints, height / 1000.)
+    L, angle, ori = compute_skeleton(finger_skeletons, cps, effector_pos, n_finger_joints)
+    fingers: List[Finger] = []
+
+    for i, f in enumerate(finger_skeletons):
+        n_joints = np.sum(~np.isnan(f).any(axis=1))
+        units: List[Unit] = []
+
+        for j in range(n_finger_joints - n_joints + 1, n_finger_joints):
+            if j == n_finger_joints - n_joints + 1:
+                u = Unit(10. - gap / 2., height, width, np.pi / 2, angle[i][j] / 2, 20.)
+            elif j == n_finger_joints - 1:
+                u = Unit(L[i][j] - gap / 2., height, width, angle[i][j - 1] / 2., angle[i][j], gap)
+            else:
+                u = Unit(L[i][j] - gap, height, width, angle[i][j - 1] / 2., angle[i][j] / 2., gap)
+            units.append(u)
+
+        fingers.append(Finger(units, orientation=ori[i]))
+
+    return finger_skeletons, fingers
+
+
 import pybullet as p
 import pybullet_data
 from GeometryUtils import GraspingObj
 
 if __name__ == "__main__":
     # test
-    unit_10 = Unit(9., 15, 20., np.pi / 2, 0.96206061, 20.)
-    unit_11 = Unit(69.76291, 15, 20., 0.96206061, 1.3867712, 2.)
-    unit_12 = Unit(30.33847, 15, 20., 1.3867712, 1.352039875, 2.)
-    unit_13 = Unit(44.67522, 15, 20., 1.352039875, np.pi / 3, 2.)
+    unit_10 = Unit(9., 20., 20., np.pi / 2, 0.96206061, 20.)
+    unit_11 = Unit(69.76291, 20., 20., 0.96206061, 1.3867712, 2.)
+    unit_12 = Unit(30.33847, 20., 20., 1.3867712, 1.352039875, 2.)
+    unit_13 = Unit(44.67522, 20., 20., 1.352039875, 0.41261234, 2.)
     finger_1 = Finger([unit_10, unit_11, unit_12, unit_13], -2.83609789)
 
-    unit_20 = Unit(9., 15, 20., np.pi / 2, 0.93984609, 20.)
-    unit_21 = Unit(70.57716, 15, 20., 0.93984609, 1.443382455, 2.)
-    unit_22 = Unit(38.50861, 15, 20., 1.443382455, 1.00161288, 2.)
-    unit_23 = Unit(14.48294, 15, 20., 1.00161288, np.pi / 3, 2.)
+    unit_20 = Unit(9., 20., 20., np.pi / 2, 0.93984609, 20.)
+    unit_21 = Unit(70.57716, 20., 20., 0.93984609, 1.443382455, 2.)
+    unit_22 = Unit(38.50861, 20., 20., 1.443382455, 1.00161288, 2.)
+    unit_23 = Unit(14.48294, 20., 20., 1.00161288, 0.94417541, 2.)
     finger_2 = Finger([unit_20, unit_21, unit_22, unit_23], -0.88539239)
 
-    unit_30 = Unit(9., 15, 20., np.pi / 2, 0.965114735, 20.)
-    unit_31 = Unit(68.89493, 15, 20., 0.965114735, 1.24382005, 2.)
-    unit_32 = Unit(79.6328, 15, 20., 1.24382005, np.pi / 3, 2.)
+    unit_30 = Unit(9., 20., 20., np.pi / 2, 0.965114735, 20.)
+    unit_31 = Unit(68.89493, 20., 20., 0.965114735, 1.24382005, 2.)
+    unit_32 = Unit(79.6328, 20., 20., 1.24382005, 0.29255161, 2.)
     finger_3 = Finger([unit_30, unit_31, unit_32], 0.40175351)
 
-    unit_40 = Unit(9., 15, 20., np.pi / 2, 0.91361506, 20.)
-    unit_41 = Unit(37.52607, 15, 20., 0.91361506, 0.933024, 2.)
-    unit_42 = Unit(22.03892, 15, 20., 0.933024, np.pi / 3, 2.)
+    unit_40 = Unit(9., 20., 20., np.pi / 2, 0.91361506, 20.)
+    unit_41 = Unit(37.52607, 20., 20., 0.91361506, 0.933024, 2.)
+    unit_42 = Unit(22.03892, 20., 20., 0.933024, 1.0873191, 2.)
     finger_4 = Finger([unit_40, unit_41, unit_42], 1.3071038)
-    # finger_5 = Finger([unit_root, unit, unit_end], np.pi * 1.6)
     gripper = FOAMGripper([finger_1, finger_2, finger_3, finger_4])
+
+    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
+    test_obj = GraspingObj(friction=0.4)
+    test_obj.read_from_stl(stl_file)
+    # cps = ContactPoints(test_obj, [176, 306, 959, 2036])
+    # end_effector_pos = np.asarray([test_obj.center_of_mass[0], test_obj.center_of_mass[1], test_obj.maxHeight + .02])
+    # _, fingers = initialize_gripper(cps, end_effector_pos, 4)
+    # gripper = FOAMGripper(fingers)
 
     # begin pybullet test
     physicsClient = p.connect(p.GUI)
@@ -460,9 +502,6 @@ if __name__ == "__main__":
     box_id = p.loadURDF(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle.urdf"), startPos, startOrientation,
                         flags=p.URDF_USE_SELF_COLLISION | p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT)
     p.changeDynamics(box_id, -1, mass=50e-3)
-    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
-    test_obj = GraspingObj(friction=0.4)
-    test_obj.read_from_stl(stl_file)
 
     finger_id = []
     for f in gripper.fingers:
@@ -473,16 +512,16 @@ if __name__ == "__main__":
         finger_id.append(f_id)
 
     p.setRealTimeSimulation(0)
-    p.performCollisionDetection()
+    # p.performCollisionDetection()
     p.enableJointForceTorqueSensor(finger_id[0], 1, 1)
 
     for i in range(500):
         for f in finger_id:
             for j in range(2):
                 limit = p.getJointInfo(f, j)[9]
-                p.setJointMotorControl2(f, j, p.POSITION_CONTROL, targetPosition=min(0.01 * i, .95 * limit))
+                p.setJointMotorControl2(f, j, p.POSITION_CONTROL, targetPosition=min(0.05 * i, .98 * limit))
         objPos, _ = p.getBasePositionAndOrientation(box_id)
-        p.resetDebugVisualizerCamera(cameraDistance=0.25, cameraYaw=50, cameraPitch=-89,
+        p.resetDebugVisualizerCamera(cameraDistance=0.3, cameraYaw=50, cameraPitch=-30,
                                      cameraTargetPosition=[0, 0., .05 + objPos[2]])
         # print(p.getJointState(finger_id[0], 1))
         p.stepSimulation()
@@ -492,23 +531,24 @@ if __name__ == "__main__":
         for f in finger_id:
             for j in range(2):
                 limit = p.getJointInfo(f, j)[9]
-                p.setJointMotorControl2(f, j, p.POSITION_CONTROL, targetPosition=.95 * limit)
+                p.setJointMotorControl2(f, j, p.POSITION_CONTROL, targetPosition=.98 * limit)
             p.resetBaseVelocity(f, [0, 0, .05])
         objPos, _ = p.getBasePositionAndOrientation(box_id)
-        p.resetDebugVisualizerCamera(cameraDistance=0.25, cameraYaw=50, cameraPitch=-89,
+        p.resetDebugVisualizerCamera(cameraDistance=0.3, cameraYaw=50, cameraPitch=-30,
                                      cameraTargetPosition=[0, 0., .05 + objPos[2]])
         p.stepSimulation()
         # print(p.getJointState(finger_id[0], 1))
         time.sleep(1. / 240.)
 
+    print(p.getBasePositionAndOrientation(box_id))
     for f in finger_id:
         cps = p.getContactPoints(box_id, f)
         for cp in cps:
             print(cp[9])  # normal force
-        print("\n")
+        # print("\n")
 
     p.disconnect()
     # end pybullet test
 
-    gripper.assemble(bottom_thick=1.2)
-    gripper.seal_mask()
+    # gripper.assemble(bottom_thick=1.2)
+    # gripper.seal_mask()
