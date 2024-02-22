@@ -21,6 +21,7 @@ class GraspingObj(object):
         self.faces = None
         self.normals = None     # outer
         self.vertices = None
+        self.vertex2face = None
         self._volume = None
         self.cog = None
         self.mu = friction
@@ -45,14 +46,19 @@ class GraspingObj(object):
         self.normals = np.delete(self.normals, zero_norm_i, axis=0)
         self.vertices = np.unique(self.faces.reshape([self.num_faces * 3, 3]), axis=0)
 
-        self.cog = self.center_of_mass
+        # construct vertex to face
+        self.vertex2face = np.empty([self.num_faces, 3], dtype=int)
+        for i, f in enumerate(self.faces):
+            for j in range(3):
+                self.vertex2face[i][j] = self._get_point_ind(f[j])
+
+        self.cog = self._calc_center_of_mass()
 
         self.maxHeight = np.max(self.faces[:, :, 2])
         self.minHeight = np.min(self.faces[:, :, 2])
         self.height = self.maxHeight - self.minHeight
 
-    @property
-    def center_of_mass(self):
+    def _calc_center_of_mass(self):
         volume = 0.
         center = np.asarray([0, 0, 0], dtype=float)
         for i in range(0, self.faces.shape[0]):
@@ -149,8 +155,8 @@ class GraspingObj(object):
                     return True
         return False
 
-    def get_point_ind(self, p) -> int:
-        return int(np.where(np.all(np.abs(self.vertices - p) < 1e-6, axis=1))[0][0])
+    def _get_point_ind(self, p) -> int:
+        return int(np.where(np.all(np.abs(self.vertices - p) < 1e-5, axis=1))[0][0])
 
     def compute_connectivity_from(self, origin):
         class VertexInfo(object):
@@ -199,9 +205,9 @@ class GraspingObj(object):
         for i, f in enumerate(self.faces):
             for j in range(3):
                 u = f[j]
-                u_id = self.get_point_ind(u)
+                u_id = self.vertex2face[i][j]
                 v = f[(j + 1) % 3]
-                v_id = self.get_point_ind(v)
+                v_id = self.vertex2face[i][(j + 1) % 3]
                 edges[u_id].append(EdgeInfo(v_id, np.linalg.norm(v - u)))
 
         # Dijkstra
@@ -221,11 +227,11 @@ class GraspingObj(object):
         center = np.average(self.faces[fid], axis=0)
         dists = np.asarray([np.linalg.norm(center - self.faces[fid][i]) for i in range(3)])
         min_i = np.argmax(dists)
-        v_id = self.get_point_ind(self.faces[fid][min_i])
+        v_id = self.vertex2face[fid][min_i]
         return int(v_id)
 
     def compute_vertex_normal(self, vid: int):
-        face_ind = np.where(np.all(np.abs(self.faces - self.vertices[vid]) < 1e-5, axis=2))[0]
+        face_ind = np.where(self.vertex2face == vid)[0]
         normal = self.normals[face_ind]
         v_n = np.average(normal, axis=0)
         v_n /= np.linalg.norm(v_n)
@@ -270,7 +276,9 @@ class ContactPoints(object):
         constraints = []
         for i in range(self.nContact):
             Fi = F[i * 3: (i + 1) * 3]
-            gi = cp.norm(Fi) - cp.sqrt(self.eta) * (Fi.T @ self.normals[i])
+            mu_i = self._obj.mu if np.dot(self.normals[i], self.f[:3]) > 0 else 0.
+            eta_i = 1.0 + math.pow(mu_i, 2)
+            gi = cp.norm(Fi) - cp.sqrt(eta_i) * (Fi.T @ self.normals[i])
             hi = -Fi.T @ self.normals[i]
             constraints += [gi <= 0]
             constraints += [hi <= 0]
@@ -319,6 +327,7 @@ class ContactPoints(object):
                 norm_f = np.linalg.norm(fi)
                 norm_n = np.linalg.norm(ni)
                 cos_a = fi.dot(ni) / (norm_f * norm_n)
+                cos_a = np.clip(cos_a, -1, 1)
                 min_alpha = min(min_alpha, np.arccos(cos_a))
         else:
             min_alpha = 0.
@@ -337,7 +346,7 @@ class ContactPoints(object):
         return q_vgp
 
     @property
-    def q_dcc(self):
+    def q_dcc(self) -> float:
         if self.nContact == 3:
             N = np.cross(self.position[1] - self.position[0], self.position[2] - self.position[0])
             if np.linalg.norm(N) < 1e-6:
@@ -376,7 +385,7 @@ class ContactPoints(object):
 
     @property
     def is_too_low(self):
-        h_threshold = self._obj.minHeight + self._obj.height * .3
+        h_threshold = self._obj.minHeight + self._obj.height * .1
         for p in self.position:
             if p[2] < h_threshold:
                 return True
@@ -394,14 +403,15 @@ class ContactPoints(object):
 if __name__ == "__main__":
     # test
     stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
-    test_obj = GraspingObj(friction=0.4)
+    test_obj = GraspingObj(friction=0.5)
     test_obj.read_from_stl(stl_file)
     print(test_obj.num_faces, test_obj.num_vertices,test_obj.volume, test_obj.cog, test_obj.furthest_dist)
     print(test_obj.minHeight, test_obj.maxHeight)
+    print(test_obj.cog.tolist())
     # cps = ContactPoints(test_obj, [35, 56, 62])
-    cps = ContactPoints(test_obj, np.arange(0, 2000, 600).tolist())
+    cps = ContactPoints(test_obj, [181, 333, 1410, 2036])
     cps.calc_force(verbose=True)
-    # cps.visualisation(vector_ratio=.5)
+    cps.visualisation(vector_ratio=.5)
 
     print(cps.is_too_low)
 

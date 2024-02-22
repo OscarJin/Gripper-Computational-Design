@@ -441,7 +441,7 @@ def initialize_gripper(
 
         for j in range(n_finger_joints - n_joints + 1, n_finger_joints):
             if j == n_finger_joints - n_joints + 1:
-                u = Unit(10. - gap / 2., height, width, np.pi / 2, angle[i][j] / 2, 20.)
+                u = Unit(20. - gap / 2., height, width, np.pi / 2, angle[i][j] / 2, 10.)
             elif j == n_finger_joints - 1:
                 u = Unit(L[i][j] - gap / 2., height, width, angle[i][j - 1] / 2., angle[i][j], gap)
             else:
@@ -456,39 +456,44 @@ def initialize_gripper(
 import pybullet as p
 import pybullet_data
 from GeometryUtils import GraspingObj
+import pickle
 
 if __name__ == "__main__":
     # test
-    unit_10 = Unit(9., 20., 20., np.pi / 2, 0.96206061, 20.)
-    unit_11 = Unit(69.76291, 20., 20., 0.96206061, 1.3867712, 2.)
-    unit_12 = Unit(30.33847, 20., 20., 1.3867712, 1.352039875, 2.)
-    unit_13 = Unit(44.67522, 20., 20., 1.352039875, 0.41261234, 2.)
-    finger_1 = Finger([unit_10, unit_11, unit_12, unit_13], -2.83609789)
+    # unit_10 = Unit(9., 20., 20., np.pi / 2, 0.96206061, 20.)
+    # unit_11 = Unit(69.716727, 20., 20., 0.96206061, 1.3867712, 2.)
+    # unit_12 = Unit(9.40482481, 20., 20., 1.3867712, 1.352039875, 2.)
+    # unit_13 = Unit(56.42058147, 20., 20., 1.352039875, 0.41261234, 2.)
+    # finger_1 = Finger([unit_10, unit_11, unit_12, unit_13], -2.83609789)
+    #
+    # unit_20 = Unit(9., 20., 20., np.pi / 2, 0.93984609, 20.)
+    # unit_21 = Unit(11.99954375, 20., 20., 0.93984609, 1.443382455, 2.)
+    # unit_22 = Unit(24.03323496, 20., 20., 1.443382455, 1.00161288, 2.)
+    # finger_2 = Finger([unit_20, unit_21, unit_22], -0.88539239)
+    #
+    # unit_30 = Unit(9., 20., 20., np.pi / 2, 0.965114735, 20.)
+    # unit_31 = Unit(22.78736356, 20., 20., 0.965114735, 1.24382005, 2.)
+    # unit_32 = Unit(28.90136904, 20., 20., 1.24382005, 0.29255161, 2.)
+    # finger_3 = Finger([unit_30, unit_31, unit_32], 0.40175351)
+    #
+    # unit_40 = Unit(9., 20., 20., np.pi / 2, 0.91361506, 20.)
+    # unit_41 = Unit(37.52607133, 20., 20., 0.91361506, 0.933024, 2.)
+    # unit_42 = Unit(22.03892, 20., 20., 0.933024, 1.0873191, 2.)
+    # finger_4 = Finger([unit_40, unit_41, unit_42], 1.3071038)
+    # gripper = FOAMGripper([finger_1, finger_2, finger_3, finger_4])
 
-    unit_20 = Unit(9., 20., 20., np.pi / 2, 0.93984609, 20.)
-    unit_21 = Unit(70.57716, 20., 20., 0.93984609, 1.443382455, 2.)
-    unit_22 = Unit(38.50861, 20., 20., 1.443382455, 1.00161288, 2.)
-    unit_23 = Unit(14.48294, 20., 20., 1.00161288, 0.94417541, 2.)
-    finger_2 = Finger([unit_20, unit_21, unit_22, unit_23], -0.88539239)
-
-    unit_30 = Unit(9., 20., 20., np.pi / 2, 0.965114735, 20.)
-    unit_31 = Unit(68.89493, 20., 20., 0.965114735, 1.24382005, 2.)
-    unit_32 = Unit(79.6328, 20., 20., 1.24382005, 0.29255161, 2.)
-    finger_3 = Finger([unit_30, unit_31, unit_32], 0.40175351)
-
-    unit_40 = Unit(9., 20., 20., np.pi / 2, 0.91361506, 20.)
-    unit_41 = Unit(37.52607, 20., 20., 0.91361506, 0.933024, 2.)
-    unit_42 = Unit(22.03892, 20., 20., 0.933024, 1.0873191, 2.)
-    finger_4 = Finger([unit_40, unit_41, unit_42], 1.3071038)
-    gripper = FOAMGripper([finger_1, finger_2, finger_3, finger_4])
-
-    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
-    test_obj = GraspingObj(friction=0.4)
-    test_obj.read_from_stl(stl_file)
-    # cps = ContactPoints(test_obj, [176, 306, 959, 2036])
-    # end_effector_pos = np.asarray([test_obj.center_of_mass[0], test_obj.center_of_mass[1], test_obj.maxHeight + .02])
-    # _, fingers = initialize_gripper(cps, end_effector_pos, 4)
-    # gripper = FOAMGripper(fingers)
+    # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
+    # test_obj = GraspingObj(friction=0.5)
+    # test_obj.read_from_stl(stl_file)
+    with open(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.pickle"), 'rb') as f_test_obj:
+        test_obj = pickle.load(f_test_obj)
+    cps = ContactPoints(test_obj, [287, 1286, 1821, 2036])
+    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
+    _, fingers = initialize_gripper(cps, end_effector_pos, 4, width=20.)
+    gripper = FOAMGripper(fingers)
+    # save test_obj
+    with open(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.pickle"), 'wb') as f_test_obj:
+        pickle.dump(test_obj, f_test_obj)
 
     # begin pybullet test
     physicsClient = p.connect(p.GUI)
@@ -497,11 +502,11 @@ if __name__ == "__main__":
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     planeId = p.loadURDF("plane.urdf")
 
-    startPos = [0, 0., 0.07504227100332876]
+    startPos = [0., 0., test_obj.cog[-1]]
     startOrientation = p.getQuaternionFromEuler([0, 0, 0])
     box_id = p.loadURDF(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle.urdf"), startPos, startOrientation,
                         flags=p.URDF_USE_SELF_COLLISION | p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT)
-    p.changeDynamics(box_id, -1, mass=50e-3)
+    p.changeDynamics(box_id, -1, mass=50e-3, lateralFriction=.5)
 
     finger_id = []
     for f in gripper.fingers:
@@ -513,13 +518,13 @@ if __name__ == "__main__":
 
     p.setRealTimeSimulation(0)
     # p.performCollisionDetection()
-    p.enableJointForceTorqueSensor(finger_id[0], 1, 1)
+    # p.enableJointForceTorqueSensor(finger_id[0], 1, 1)
 
     for i in range(500):
         for f in finger_id:
-            for j in range(2):
+            for j in range(p.getNumJoints(f)):
                 limit = p.getJointInfo(f, j)[9]
-                p.setJointMotorControl2(f, j, p.POSITION_CONTROL, targetPosition=min(0.05 * i, .98 * limit))
+                p.setJointMotorControl2(f, j, p.POSITION_CONTROL, targetPosition=min(0.01 * i, .95 * limit))
         objPos, _ = p.getBasePositionAndOrientation(box_id)
         p.resetDebugVisualizerCamera(cameraDistance=0.3, cameraYaw=50, cameraPitch=-30,
                                      cameraTargetPosition=[0, 0., .05 + objPos[2]])
@@ -527,11 +532,11 @@ if __name__ == "__main__":
         p.stepSimulation()
         time.sleep(1. / 240.)
 
-    for i in range(500):
+    for _ in range(500):
         for f in finger_id:
-            for j in range(2):
+            for j in range(p.getNumJoints(f)):
                 limit = p.getJointInfo(f, j)[9]
-                p.setJointMotorControl2(f, j, p.POSITION_CONTROL, targetPosition=.98 * limit)
+                p.setJointMotorControl2(f, j, p.POSITION_CONTROL, targetPosition=.95 * limit)
             p.resetBaseVelocity(f, [0, 0, .05])
         objPos, _ = p.getBasePositionAndOrientation(box_id)
         p.resetDebugVisualizerCamera(cameraDistance=0.3, cameraYaw=50, cameraPitch=-30,

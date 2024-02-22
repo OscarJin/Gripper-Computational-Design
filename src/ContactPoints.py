@@ -9,7 +9,7 @@ from concurrent import futures
 from scipy.spatial._qhull import QhullError
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-import warnings
+from GripperInitialization import initialize_fingers, compute_skeleton
 
 
 class Chromosome(object):
@@ -26,6 +26,7 @@ class ContactPointsGA(object):
             self,
             graspingObj: GraspingObj,
             numContact,
+            effector_pos,
             population_size=20,
             generations=100,
             cross_prob=.9,
@@ -37,6 +38,7 @@ class ContactPointsGA(object):
     ):
         self._graspObj = graspingObj
         self._numContact = numContact
+        self._effector_pos = effector_pos
         self._lower_bound = 0
         self._upper_bound = self._graspObj.num_faces
 
@@ -60,15 +62,18 @@ class ContactPointsGA(object):
 
     def fitness(self, gene):
         cps = ContactPoints(obj=self._graspObj, fid=gene)
-        if cps.F is None:
-            return 0.
-        if cps.is_too_low:
-            return 0.
+        if cps.F is None or cps.is_too_low:
+            return -2.
+
+        skeletons = initialize_fingers(cps, self._effector_pos, 4)
+        L, _, _ = compute_skeleton(skeletons, cps, self._effector_pos, 4)
+        L_avg = np.average(np.nansum(L, axis=1))
+        L_avg /= (self._graspObj.height * 1000)  # normalize
 
         try:
-            return 2 * cps.q_fcl + cps.q_vgp - cps.q_dcc + .5 * cps.ferrari_canny
+            return 2 * cps.q_fcl + cps.q_vgp - cps.q_dcc + cps.ferrari_canny - .5 * L_avg
         except QhullError:
-            return 0.
+            return -2.
 
     def create_individual(self):
         """create an individual randomly"""
@@ -87,7 +92,7 @@ class ContactPointsGA(object):
         trial = np.where(np.random.rand(self._numContact) <= self._cross_prob,
                          mutant, np.asarray(self._cur_generation[ind].genes)).astype(int)
         j_rand = self._random.choice(range(self._numContact))
-        trial[j_rand] = mutant[j_rand]      # ensure crossover
+        trial[j_rand] = mutant[j_rand]  # ensure crossover
         trial = np.clip(trial, self._lower_bound, self._upper_bound - 1)
         trial = np.unique(trial)
         if trial.shape[0] < self._numContact:
@@ -187,8 +192,8 @@ class ContactPointsGA(object):
         self._history_fitness_avg.append(avg)
         self._history_fitness_std.append(std)
 
-        for g in tqdm(range(1, self._generations),
-                      desc="Searching optimal grasping contacts"):
+        for g in (tqdm(range(1, self._generations), desc="Searching optimal grasp configuration") if not self._verbose
+                    else range(1, self._generations)):
             if self._adaptive:
                 self._mutation_factor = (self._mutation_factor_0 *
                                          np.power(2, np.exp(1 - self._generations / (self._generations + 1 - g))))
@@ -225,6 +230,7 @@ class ContactPointsGA(object):
         best = self._cur_generation[0]
         return best.fitness, best.genes
 
+    @property
     def last_generation(self):
         """return members of the last generation"""
         return ((member.fitness, member.genes) for member in self._cur_generation)
@@ -235,13 +241,19 @@ from mpl_toolkits import mplot3d
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import time
 from itertools import combinations
+import pickle
 
 if __name__ == "__main__":
     # test
-    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
-    test_obj = GraspingObj(friction=0.4)
-    test_obj.read_from_stl(stl_file)
+    # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
+    # test_obj = GraspingObj(friction=0.5)
+    # test_obj.read_from_stl(stl_file)
+    with open(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.pickle"),
+              'rb') as f_test_obj:
+        test_obj = pickle.load(f_test_obj)
     print(f'Faces: {test_obj.num_faces}')
+    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
+    test_obj.compute_connectivity_from(end_effector_pos)
 
     # tune
     # crs = np.arange(0.3, 0.9, 0.1)
@@ -268,8 +280,9 @@ if __name__ == "__main__":
 
     # single test
     t1 = time.time()
-    ga = ContactPointsGA(test_obj, 4, cross_prob=.6, mutation_factor=.6, maximizeFitness=True,
-                         population_size=100, generations=100, verbose=False, adaptive=True)
+    ga = ContactPointsGA(test_obj, 3, end_effector_pos,
+                         cross_prob=.8, mutation_factor=.6, maximizeFitness=True,
+                         population_size=1000, generations=20, verbose=False, adaptive=False)
     ga.run(n_workers=8)
     t2 = time.time()
     print(f"Elapsed time: {t2 - t1} seconds")
@@ -278,3 +291,7 @@ if __name__ == "__main__":
     bestCP = ContactPoints(test_obj, ga.best_individual[1])
     bestCP.calc_force(verbose=True)
     bestCP.visualisation(vector_ratio=.2)
+
+    for m in list(ga.last_generation):
+        if m[0] != -np.inf:
+            print(m[1])
