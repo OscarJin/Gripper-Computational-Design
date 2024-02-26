@@ -69,9 +69,9 @@ if __name__ == "__main__":
         test_obj = pickle.load(f_test_obj)
 
     test_obj_urdf = os.path.join(os.path.abspath('..'), "assets/ycb/013_apple.urdf")
-    cps = ContactPoints(test_obj, [3242, 1277, 1832, 2248])
+    cps = ContactPoints(test_obj, [1509, 1812, 2419, 2650])
     end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
-    _, fingers = initialize_gripper(cps, end_effector_pos, 4, width=20.)
+    _, fingers = initialize_gripper(cps, end_effector_pos, 4, width=17.5)
     gripper = FOAMGripper(fingers)
 
     physicsClient = p.connect(p.DIRECT)

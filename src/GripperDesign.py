@@ -29,14 +29,14 @@ if __name__ == "__main__":
     for _ in range(1):
         ga = ContactPointsGA(test_obj, 4, end_effector_pos,
                              cross_prob=.8, mutation_factor=.6, maximizeFitness=True,
-                             population_size=200, generations=50, verbose=False, adaptive=False)
-        ga.run(n_workers=8)
+                             population_size=100, generations=3, verbose=False, adaptive=False)
+        ga.run(n_workers=6)
         last_gen = list(ga.last_generation)
         cp_tested = []
         widths = np.arange(17.5, 27.5, 2.5)
         del ga
 
-        for i in range(100):
+        for i in range(2):
             if last_gen[i][1] not in cp_tested and last_gen[i][0] > -2.:
                 cur_gene = last_gen[i][1]
                 cp_tested.append(cur_gene)
@@ -53,5 +53,6 @@ if __name__ == "__main__":
                     if success_cnt > 5:
                         design_cnt += 1
                         print(cur_gene, f'Width: {w}', final_pos)
+                    gripper.clean()
     print(design_cnt)
     p.disconnect()

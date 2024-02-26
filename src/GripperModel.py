@@ -1,5 +1,5 @@
-import hashlib
 import os
+import hashlib
 import time
 
 import math
@@ -76,6 +76,7 @@ class Unit:
     def __del__(self):
         if os.path.exists(self.filename):
             os.remove(self.filename)
+            print('delete unit')
 
 
 class Finger:
@@ -155,6 +156,7 @@ class Finger:
     def __del__(self):
         if os.path.exists(self.filename):
             os.remove(self.filename)
+            print('delete finger')
 
     @staticmethod
     def calc_joint_limit(unit1: Unit, unit2: Unit):
@@ -423,6 +425,14 @@ class FOAMGripper:
 
         return mask
 
+    def clean(self):
+        for f in self.fingers:
+            for u in f.units:
+                if os.path.exists(u.filename):
+                    os.remove(u.filename)
+            if os.path.exists(f.filename):
+                os.remove(f.filename)
+
 
 def initialize_gripper(
         cps: ContactPoints, effector_pos,
@@ -488,10 +498,11 @@ if __name__ == "__main__":
     with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
               'rb') as f_test_obj:
         test_obj = pickle.load(f_test_obj)
-    cps = ContactPoints(test_obj, [0, 1931, 2572, 2924])
+    cps = ContactPoints(test_obj, [1604, 487, 2509, 2863])
     end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
-    _, fingers = initialize_gripper(cps, end_effector_pos, 4, width=22.5)
+    _, fingers = initialize_gripper(cps, end_effector_pos, 4, width=20.)
     gripper = FOAMGripper(fingers)
+
     # save test_obj
     # with open(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.pickle"), 'wb') as f_test_obj:
     #     pickle.dump(test_obj, f_test_obj)
@@ -558,3 +569,4 @@ if __name__ == "__main__":
 
     # gripper.assemble(bottom_thick=1.2)
     # gripper.seal_mask()
+    gripper.clean()

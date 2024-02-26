@@ -4,6 +4,7 @@ gripper_*.stl
 unit_*.stl
 finger_*.stl
 finger_*.urdf
+results.txt
 
 ### VisualStudioCode template
 .vscode/*
