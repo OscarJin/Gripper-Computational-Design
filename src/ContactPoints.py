@@ -292,6 +292,6 @@ if __name__ == "__main__":
     bestCP.calc_force(verbose=True)
     bestCP.visualisation(vector_ratio=.2)
 
-    for m in list(ga.last_generation):
-        if m[0] != -np.inf:
+    for m in list(set(ga.last_generation)):
+        if m[0] > -2.:
             print(m[1])

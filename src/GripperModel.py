@@ -289,7 +289,7 @@ class FOAMGripper:
         for i in range(self.n_finger):
             cur_mesh = self.fingers[i].assemble(bottom_thick=bottom_thick, export=False)
             cur_v = cur_mesh.vertices
-            cur_v = self.rotate(cur_v, self.fingers[i].orientation)
+            cur_v = self.rotate(cur_v, np.pi - self.fingers[i].orientation)
             cur_f = cur_mesh.faces
             cur_mesh = trimesh.Trimesh(vertices=cur_v, faces=cur_f)
             gripper_meshes.append(cur_mesh)
@@ -431,7 +431,7 @@ def initialize_gripper(
         width=20.,
         gap=2.,
 ):
-    finger_skeletons = initialize_fingers(cps, effector_pos, n_finger_joints, height / 1000.)
+    finger_skeletons = initialize_fingers(cps, effector_pos, n_finger_joints, height * 1.5 / 1000.)
     L, angle, ori = compute_skeleton(finger_skeletons, cps, effector_pos, n_finger_joints)
     fingers: List[Finger] = []
 
@@ -453,12 +453,12 @@ def initialize_gripper(
     return finger_skeletons, fingers
 
 
-import pybullet as p
-import pybullet_data
 from GeometryUtils import GraspingObj
 import pickle
 
 if __name__ == "__main__":
+    import pybullet as p
+    import pybullet_data
     # test
     # unit_10 = Unit(9., 20., 20., np.pi / 2, 0.96206061, 20.)
     # unit_11 = Unit(69.716727, 20., 20., 0.96206061, 1.3867712, 2.)
@@ -485,15 +485,16 @@ if __name__ == "__main__":
     # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
     # test_obj = GraspingObj(friction=0.5)
     # test_obj.read_from_stl(stl_file)
-    with open(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.pickle"), 'rb') as f_test_obj:
+    with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
+              'rb') as f_test_obj:
         test_obj = pickle.load(f_test_obj)
-    cps = ContactPoints(test_obj, [287, 1286, 1821, 2036])
+    cps = ContactPoints(test_obj, [0, 1931, 2572, 2924])
     end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
-    _, fingers = initialize_gripper(cps, end_effector_pos, 4, width=20.)
+    _, fingers = initialize_gripper(cps, end_effector_pos, 4, width=22.5)
     gripper = FOAMGripper(fingers)
     # save test_obj
-    with open(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.pickle"), 'wb') as f_test_obj:
-        pickle.dump(test_obj, f_test_obj)
+    # with open(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.pickle"), 'wb') as f_test_obj:
+    #     pickle.dump(test_obj, f_test_obj)
 
     # begin pybullet test
     physicsClient = p.connect(p.GUI)
@@ -504,7 +505,7 @@ if __name__ == "__main__":
 
     startPos = [0., 0., test_obj.cog[-1]]
     startOrientation = p.getQuaternionFromEuler([0, 0, 0])
-    box_id = p.loadURDF(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle.urdf"), startPos, startOrientation,
+    box_id = p.loadURDF(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple.urdf"), startPos, startOrientation,
                         flags=p.URDF_USE_SELF_COLLISION | p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT)
     p.changeDynamics(box_id, -1, mass=50e-3, lateralFriction=.5)
 

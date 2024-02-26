@@ -10,6 +10,17 @@ def should_pop(a, c, obj: GraspingObj) -> bool:
     return not obj.intersect_segment(a, c - a)
 
 
+def should_pop_surface(a, c, vid_a, vid_c, obj: GraspingObj) -> bool:
+    ac = (c - a) / np.linalg.norm(c - a)
+    n_a = obj.compute_vertex_normal(vid_a) if vid_a != -1 else None
+    n_c = obj.compute_vertex_normal(vid_c) if vid_c != -1 else None
+    if n_a is not None and n_c is not None and np.dot(n_a, ac) < 0 < np.dot(n_c, ac):
+        return False
+    a += ac * 1e-6
+    c -= ac * 1e-6
+    return not obj.intersect_segment(a, c - a)
+
+
 def point_to_line_dist(a, b, p):
     ab = b - a
     ap = p - a
@@ -17,7 +28,7 @@ def point_to_line_dist(a, b, p):
     return np.linalg.norm(ap - proj)
 
 
-def initialize_finger_skeleton(fid: int, obj: GraspingObj, effector_pos, n_finger_joints: int, expand_dist=.02):
+def initialize_finger_skeleton(fid: int, obj: GraspingObj, effector_pos, n_finger_joints: int, expand_dist=.03):
     vid: int = obj.compute_closest_point(fid)
     finger = np.empty([1, 3], dtype=float)
     finger[0] = np.average(obj.faces[fid], axis=0)
@@ -25,7 +36,7 @@ def initialize_finger_skeleton(fid: int, obj: GraspingObj, effector_pos, n_finge
 
     while vid != -1:
         toPush = obj.vertices[vid]
-        while len(finger) > 1 and should_pop(finger[-2], toPush, obj):
+        while len(finger) > 1 and should_pop_surface(finger[-2], toPush, fingerVid[-2], vid, obj):
             finger = finger[:-1]
             fingerVid = fingerVid[:-1]
         finger = np.concatenate((finger, toPush.reshape((1, 3))), axis=0)
@@ -40,13 +51,23 @@ def initialize_finger_skeleton(fid: int, obj: GraspingObj, effector_pos, n_finge
         finger[j] += VN * expand_dist
 
     # offset effector (ind: -1)
+    n_finger = np.cross(finger[-1] - finger[-2], finger[-3] - finger[-2])
     oa = finger[0][:-1] - finger[-1][:-1]
     oa /= np.linalg.norm(oa)
     offset_dist = 0.03
     finger[-1][:-1] += oa * offset_dist
     finger = np.concatenate((finger, effector_pos.reshape((1, 3))), axis=0)
-    if len(finger) > 3 and should_pop(finger[-4], finger[-2], obj):
+    # if len(finger) > 3 and should_pop(finger[-4], finger[-2], obj):
+    if len(finger) > 3 and np.dot(n_finger, np.cross(finger[-2] - finger[-3], finger[-4] - finger[-3])) < 0:
         finger = np.delete(finger, -3, axis=0)
+
+    # offset contact point
+    n_cp = obj.normals[fid] / np.linalg.norm(obj.normals[fid])
+    offset_dist = 0.02
+    finger = np.insert(finger, 1, finger[0] + offset_dist * n_cp, axis=0)
+    # if len(finger) > 4 and should_pop(finger[1], finger[3], obj):
+    if len(finger) > 4 and np.dot(n_finger, np.cross(finger[3] - finger[2], finger[1] - finger[2])) < 0:
+        finger = np.delete(finger, 2, axis=0)
 
     # fix number of segment
     while len(finger) > n_finger_joints + 1:
@@ -56,6 +77,9 @@ def initialize_finger_skeleton(fid: int, obj: GraspingObj, effector_pos, n_finge
         best_fall_back = np.inf
         for j in range(2, len(finger) - 2):
             cost = point_to_line_dist(finger[j - 1], finger[j + 1], finger[j])
+            # n_cur = np.cross(finger[j + 1] - finger[j], finger[j - 1] - finger[j])
+            # if np.dot(n_finger, n_cur) < 0.:
+            #     cost = 0.
             # cost = min(np.linalg.norm(finger[j] - finger[j - 1]), np.linalg.norm(finger[j] - finger[j + 1]))
             if should_pop(finger[j - 1], finger[j + 1], obj):
                 if cost < best:
@@ -88,7 +112,7 @@ def initialize_finger_skeleton(fid: int, obj: GraspingObj, effector_pos, n_finge
     return finger
 
 
-def initialize_fingers(cps: ContactPoints, effector_pos, n_finger_joints: int, expand_dist=.02):
+def initialize_fingers(cps: ContactPoints, effector_pos, n_finger_joints: int, expand_dist=.03):
     if cps.obj.effector_pos is None or not np.all(np.isclose(cps.obj.effector_pos, effector_pos)):
         cps.obj.compute_connectivity_from(effector_pos)
 
@@ -110,9 +134,10 @@ def compute_skeleton(finger_skeletons, cps:ContactPoints, effector_pos, n_finger
             a = f[j] - f[j - 1]
             b = f[j - 2] - f[j - 1]
             angle[i][-j] = np.arccos(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
-        gc_n = cps.obj.normals[cps.fid[i]] / np.linalg.norm(cps.obj.normals[cps.fid[i]])   # outer
-        angle[i][-1] = np.arcsin(np.dot(f[1] - f[0], gc_n) / np.linalg.norm(f[1] - f[0]))
-        angle[i][-1] = angle[i][-1] if angle[i][-1] > np.deg2rad(5) else np.pi / 2
+        # gc_n = cps.obj.normals[cps.fid[i]] / np.linalg.norm(cps.obj.normals[cps.fid[i]])   # outer
+        # angle[i][-1] = np.arcsin(np.dot(f[1] - f[0], gc_n) / np.linalg.norm(f[1] - f[0]))
+        # angle[i][-1] = angle[i][-1] if angle[i][-1] > np.deg2rad(5) else np.pi / 2
+        angle[i][-1] = np.pi / 2
 
         v_ori = f[0][:-1] - effector_pos[:-1]
         ori[i] = np.arctan2(v_ori[1], v_ori[0])
@@ -123,18 +148,21 @@ import os
 from mpl_toolkits import mplot3d
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import pickle
 
 
 if __name__ == "__main__":
-    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
-    test_obj = GraspingObj(friction=0.4)
-    test_obj.read_from_stl(stl_file)
-    cps = ContactPoints(test_obj, [1926, 1181, 414])
+    # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
+    # test_obj = GraspingObj(friction=0.5)
+    # test_obj.read_from_stl(stl_file)
+    with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
+              'rb') as f_test_obj:
+        test_obj = pickle.load(f_test_obj)
+    cps = ContactPoints(test_obj, [235, 990, 1548, 3080])
     end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
-    # end_effector_pos = np.asarray([test_obj.center_of_mass[0], .05, test_obj.center_of_mass[2]])
-    test_obj.compute_connectivity_from(end_effector_pos)
-    skeletons = initialize_fingers(cps, end_effector_pos, 4)
-    Ls, angles, oris = compute_skeleton(skeletons, cps, end_effector_pos, 4)
+    # test_obj.compute_connectivity_from(end_effector_pos)
+    skeletons = initialize_fingers(cps, end_effector_pos, 5)
+    Ls, angles, oris = compute_skeleton(skeletons, cps, end_effector_pos, 5)
     print(Ls, angles, oris)
 
     # visualization

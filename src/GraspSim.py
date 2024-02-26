@@ -64,12 +64,12 @@ from GeometryUtils import ContactPoints
 from GripperModel import initialize_gripper
 
 if __name__ == "__main__":
-    with open(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.pickle"),
+    with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
               'rb') as f_test_obj:
         test_obj = pickle.load(f_test_obj)
 
-    test_obj_urdf = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle.urdf")
-    cps = ContactPoints(test_obj, [287, 1286, 1821, 2036])
+    test_obj_urdf = os.path.join(os.path.abspath('..'), "assets/ycb/013_apple.urdf")
+    cps = ContactPoints(test_obj, [3242, 1277, 1832, 2248])
     end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
     _, fingers = initialize_gripper(cps, end_effector_pos, 4, width=20.)
     gripper = FOAMGripper(fingers)
