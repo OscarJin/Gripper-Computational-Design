@@ -1,5 +1,4 @@
-from GeometryUtils import GraspingObj
-from GeometryUtils import ContactPoints
+from GeometryUtils import GraspingObj, ContactPoints
 import random
 import numpy as np
 from operator import attrgetter
@@ -10,6 +9,9 @@ from scipy.spatial._qhull import QhullError
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from GripperInitialization import initialize_fingers, compute_skeleton
+from GripperModel import FOAMGripper, initialize_gripper
+from GraspSim import multiple_gripper_sim
+import pybullet as p
 
 
 class Chromosome(object):
@@ -25,6 +27,7 @@ class ContactPointsGA(object):
     def __init__(
             self,
             graspingObj: GraspingObj,
+            graspingObjUrdf: str,
             numContact,
             effector_pos,
             population_size=20,
@@ -37,6 +40,7 @@ class ContactPointsGA(object):
             random_state=None,
     ):
         self._graspObj = graspingObj
+        self._graspObjUrdf = graspingObjUrdf
         self._numContact = numContact
         self._effector_pos = effector_pos
         self._lower_bound = 0
@@ -63,17 +67,59 @@ class ContactPointsGA(object):
     def fitness(self, gene):
         cps = ContactPoints(obj=self._graspObj, fid=gene)
         if cps.F is None or cps.is_too_low:
+            return -3.
+
+        # pybullet sim
+        widths = np.linspace(15., 25., 5)
+        height_ratio = np.linspace(1., 2., 5)
+        ww, rr = np.meshgrid(widths, height_ratio)
+
+        best_skeletons = None
+        max_height = 0.
+        best_success_cnt = 0
+
+        design_cnt = 0
+        # for w in widths:
+        for i, w in np.ndenumerate(ww):
+            skeletons, fingers = initialize_gripper(cps, self._effector_pos, 8, height_ratio=rr[i], width=w)
+            gripper = FOAMGripper(fingers)
+            cur_best_skeletons = None
+            cur_max_height = 0.
+            success_cnt = 0
+            final_pos = multiple_gripper_sim(self._graspObj, self._graspObjUrdf, [gripper] * 20, p.DIRECT)
+            for pos in final_pos:
+                if pos[-1] > self._graspObj.cog[-1] + .5 * (.05 * 500 / 240):
+                    success_cnt += 1
+                    if pos[-1] > cur_max_height:
+                        cur_max_height = pos[-1]
+                        cur_best_skeletons = skeletons
+            gripper.clean()
+            if success_cnt > 0:
+                design_cnt += 1
+                if success_cnt > best_success_cnt:
+                    best_success_cnt = success_cnt
+                    best_skeletons = cur_best_skeletons
+                    max_height = cur_max_height
+
+        if design_cnt == 0:
             return -2.
 
-        skeletons = initialize_fingers(cps, self._effector_pos, 4)
-        L, _, _ = compute_skeleton(skeletons, cps, self._effector_pos, 4)
+        L, _, ori = compute_skeleton(best_skeletons, cps, self._effector_pos, 8)
         L_avg = np.average(np.nansum(L, axis=1))
         L_avg /= (self._graspObj.height * 1000)  # normalize
 
-        try:
-            return 2 * cps.q_fcl + cps.q_vgp - cps.q_dcc + cps.ferrari_canny - .5 * L_avg
-        except QhullError:
-            return -2.
+        ori_sort = np.sort(ori, kind='heapsort')
+        min_ori_diff = np.inf
+        for i in range(len(ori_sort)):
+            diff = (ori_sort[0] + 2 * np.pi) - ori_sort[-1] if i == len(ori_sort) - 1 else ori_sort[i + 1] - ori_sort[i]
+            min_ori_diff = min(min_ori_diff, diff)
+        min_ori_diff /= (2 * np.pi / len(ori))
+
+        # try:
+        #     return 2 * cps.q_fcl + cps.q_vgp - cps.q_dcc + cps.ferrari_canny - .5 * L_avg + .5 * min_ori_diff
+        # except QhullError:
+        #     return -2.
+        return 2 * best_success_cnt / 20 + max_height / (self._graspObj.cog[-1] + .05 * 500 / 240) - L_avg + min_ori_diff
 
     def create_individual(self):
         """create an individual randomly"""

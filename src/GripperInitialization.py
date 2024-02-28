@@ -48,7 +48,11 @@ def initialize_finger_skeleton(fid: int, obj: GraspingObj, effector_pos, n_finge
     # expand segment by expand_dist
     for j in range(1, len(finger) - 1):
         VN = obj.compute_vertex_normal(fingerVid[j])
-        finger[j] += VN * expand_dist
+        if VN[-1] < 0:
+            offset_dist = min(expand_dist, (finger[j][-1] - obj.minHeight) / (1 - VN[-1]))
+        else:
+            offset_dist = min(expand_dist, (effector_pos[-1] - finger[j][-1]) / (1 + VN[-1]))
+        finger[j] += VN * offset_dist
 
     # offset effector (ind: -1)
     n_finger = np.cross(finger[-1] - finger[-2], finger[-3] - finger[-2])
@@ -63,23 +67,25 @@ def initialize_finger_skeleton(fid: int, obj: GraspingObj, effector_pos, n_finge
 
     # offset contact point
     n_cp = obj.normals[fid] / np.linalg.norm(obj.normals[fid])
-    offset_dist = 0.02
+    offset_dist = min(.02, (finger[0][-1] - obj.minHeight) / (1 + max(-n_cp[-1], 1e-6)))
     finger = np.insert(finger, 1, finger[0] + offset_dist * n_cp, axis=0)
     # if len(finger) > 4 and should_pop(finger[1], finger[3], obj):
     if len(finger) > 4 and np.dot(n_finger, np.cross(finger[3] - finger[2], finger[1] - finger[2])) < 0:
         finger = np.delete(finger, 2, axis=0)
 
     # fix number of segment
-    while len(finger) > n_finger_joints + 1:
+    exist_minus_angle = False
+    while len(finger) > n_finger_joints + 1 or exist_minus_angle:
         best_id = -1
         best_fall_back_id = -1
         best = np.inf
         best_fall_back = np.inf
+        exist_minus_angle = False
         for j in range(2, len(finger) - 2):
             cost = point_to_line_dist(finger[j - 1], finger[j + 1], finger[j])
-            # n_cur = np.cross(finger[j + 1] - finger[j], finger[j - 1] - finger[j])
-            # if np.dot(n_finger, n_cur) < 0.:
-            #     cost = 0.
+            n_cur = np.cross(finger[j + 1] - finger[j], finger[j - 1] - finger[j])
+            if np.dot(n_finger, n_cur) < 0.:
+                exist_minus_angle = True
             # cost = min(np.linalg.norm(finger[j] - finger[j - 1]), np.linalg.norm(finger[j] - finger[j + 1]))
             if should_pop(finger[j - 1], finger[j + 1], obj):
                 if cost < best:
@@ -158,11 +164,11 @@ if __name__ == "__main__":
     with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
               'rb') as f_test_obj:
         test_obj = pickle.load(f_test_obj)
-    cps = ContactPoints(test_obj, [235, 990, 1548, 3080])
+    cps = ContactPoints(test_obj, [364, 1839, 2268, 3259])
     end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
     # test_obj.compute_connectivity_from(end_effector_pos)
-    skeletons = initialize_fingers(cps, end_effector_pos, 5)
-    Ls, angles, oris = compute_skeleton(skeletons, cps, end_effector_pos, 5)
+    skeletons = initialize_fingers(cps, end_effector_pos, 8)
+    Ls, angles, oris = compute_skeleton(skeletons, cps, end_effector_pos, 8)
     print(Ls, angles, oris)
 
     # visualization
@@ -172,7 +178,7 @@ if __name__ == "__main__":
     scale = test_obj._mesh.points.flatten()
     ax.auto_scale_xyz(scale, scale, scale)
     for i in range(cps.nContact):
-        for j in range(4):
+        for j in range(8):
             x = [skeletons[i][j][0], skeletons[i][j + 1][0]]
             y = [skeletons[i][j][1], skeletons[i][j + 1][1]]
             z = [skeletons[i][j][2], skeletons[i][j + 1][2]]

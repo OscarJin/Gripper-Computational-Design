@@ -147,7 +147,7 @@ class GraspingObj(object):
         #     intersects = self._segment_triangle_intersection(origin, direction, f)
         #     if intersects:
         #         return True
-        with futures.ThreadPoolExecutor(max_workers=8) as executor:
+        with futures.ThreadPoolExecutor(max_workers=32) as executor:
             for f in range(self.num_faces):
                 # intersects = self._segment_triangle_intersection(origin, direction, f)
                 intersects = executor.submit(self._segment_triangle_intersection, origin, direction, f)
@@ -186,7 +186,7 @@ class GraspingObj(object):
                 parent[i] = -1
                 q.put(VertexInfo(i, dist[i]))
 
-        with futures.ThreadPoolExecutor(max_workers=8) as executor:
+        with futures.ThreadPoolExecutor(max_workers=32) as executor:
             tasks = [executor.submit(calc_start_dist, i, v) for i, v in enumerate(self.vertices)]
 
             for _ in tqdm(futures.as_completed(tasks), total=len(tasks),
@@ -385,7 +385,7 @@ class ContactPoints(object):
 
     @property
     def is_too_low(self):
-        h_threshold = self._obj.minHeight + self._obj.height * .1
+        h_threshold = self._obj.minHeight + self._obj.height * .3
         for p in self.position:
             if p[2] < h_threshold:
                 return True
@@ -402,16 +402,16 @@ class ContactPoints(object):
 
 if __name__ == "__main__":
     # test
-    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
+    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/google_16k/nontextured.stl")
     test_obj = GraspingObj(friction=0.5)
     test_obj.read_from_stl(stl_file)
     print(test_obj.num_faces, test_obj.num_vertices,test_obj.volume, test_obj.cog, test_obj.furthest_dist)
     print(test_obj.minHeight, test_obj.maxHeight)
     print(test_obj.cog.tolist())
     # cps = ContactPoints(test_obj, [35, 56, 62])
-    cps = ContactPoints(test_obj, [181, 333, 1410, 2036])
+    cps = ContactPoints(test_obj, [1604, 487, 2509, 2863])
     cps.calc_force(verbose=True)
-    cps.visualisation(vector_ratio=.5)
+    # cps.visualisation(vector_ratio=.5)
 
     print(cps.is_too_low)
 
@@ -419,8 +419,8 @@ if __name__ == "__main__":
     # direction = (np.average(test_obj.faces[5], axis=0) - start) * 1.5
     # print(test_obj.intersect_segment(start, direction))
 
-    # end_effector_pos = np.asarray([test_obj.center_of_mass[0], test_obj.center_of_mass[1], test_obj.maxHeight + .1])
-    # test_obj.compute_connectivity_from(end_effector_pos)
+    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
+    test_obj.compute_connectivity_from(end_effector_pos)
 
     p_id = test_obj.compute_closest_point(cps.fid[0])
     print(p_id, test_obj.vertices[p_id])

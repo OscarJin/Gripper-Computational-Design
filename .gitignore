@@ -5,6 +5,7 @@ unit_*.stl
 finger_*.stl
 finger_*.urdf
 results.txt
+debug.txt
 
 ### VisualStudioCode template
 .vscode/*

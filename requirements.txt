@@ -7,3 +7,4 @@ pybullet==3.2.5
 scipy==1.10.1
 tqdm==4.66.1
 trimesh==4.0.5
+manifold3d==2.2.2

@@ -76,7 +76,6 @@ class Unit:
     def __del__(self):
         if os.path.exists(self.filename):
             os.remove(self.filename)
-            print('delete unit')
 
 
 class Finger:
@@ -156,7 +155,6 @@ class Finger:
     def __del__(self):
         if os.path.exists(self.filename):
             os.remove(self.filename)
-            print('delete finger')
 
     @staticmethod
     def calc_joint_limit(unit1: Unit, unit2: Unit):
@@ -288,10 +286,10 @@ class FOAMGripper:
 
     def assemble(self, export=True, bottom_thick=1.2, palm_ratio=1.2):
         gripper_meshes = []
-        for i in range(self.n_finger):
-            cur_mesh = self.fingers[i].assemble(bottom_thick=bottom_thick, export=False)
+        for f in self.fingers:
+            cur_mesh = f.assemble(bottom_thick=bottom_thick, export=False)
             cur_v = cur_mesh.vertices
-            cur_v = self.rotate(cur_v, np.pi - self.fingers[i].orientation)
+            cur_v = self.rotate(cur_v, np.pi - f.orientation)
             cur_f = cur_mesh.faces
             cur_mesh = trimesh.Trimesh(vertices=cur_v, faces=cur_f)
             gripper_meshes.append(cur_mesh)
@@ -315,7 +313,7 @@ class FOAMGripper:
 
         t_w = 3.
         for f in self.fingers:
-            t_h = min(3., f.min_unit_width / 2)
+            t_h = min(2., f.min_unit_height / 2)
             t_v = np.asarray([
                 [0, -t_w / 2, 0],
                 [r_palm, -t_w / 2, 0],
@@ -326,7 +324,7 @@ class FOAMGripper:
                 [r_palm, t_w / 2, t_h],
                 [0, t_w / 2, t_h],
             ])
-            t_v = self.rotate(t_v, f.orientation)
+            t_v = self.rotate(t_v, np.pi - f.orientation)
             t_f = f.units[0].faces.copy()
             t_mesh = trimesh.Trimesh(vertices=t_v, faces=t_f)
             gripper_mesh = trimesh.boolean.difference([gripper_mesh, t_mesh])
@@ -404,7 +402,7 @@ class FOAMGripper:
         for f in self.fingers:
             cur_mesh = f.mask(extend=extend)
             cur_v = cur_mesh.vertices
-            cur_v = self.rotate(cur_v, f.orientation)
+            cur_v = self.rotate(cur_v, np.pi - f.orientation)
             inner_masks.append(trimesh.Trimesh(vertices=cur_v, faces=cur_mesh.faces))
         inner_mask = trimesh.boolean.union(inner_masks)
 
@@ -412,7 +410,7 @@ class FOAMGripper:
         for f in self.fingers:
             cur_mesh = f.mask(extend=extend + wall_thick)
             cur_v = cur_mesh.vertices
-            cur_v = self.rotate(cur_v, f.orientation)
+            cur_v = self.rotate(cur_v, np.pi - f.orientation)
             outer_masks.append(trimesh.Trimesh(vertices=cur_v, faces=cur_mesh.faces))
 
         outer_mask = trimesh.boolean.union(outer_masks)
@@ -437,11 +435,12 @@ class FOAMGripper:
 def initialize_gripper(
         cps: ContactPoints, effector_pos,
         n_finger_joints: int,
-        height=20.,
+        expand_dist=20.,
+        height_ratio=1.5,
         width=20.,
         gap=2.,
 ):
-    finger_skeletons = initialize_fingers(cps, effector_pos, n_finger_joints, height * 1.5 / 1000.)
+    finger_skeletons = initialize_fingers(cps, effector_pos, n_finger_joints, expand_dist / 1000)
     L, angle, ori = compute_skeleton(finger_skeletons, cps, effector_pos, n_finger_joints)
     fingers: List[Finger] = []
 
@@ -451,11 +450,11 @@ def initialize_gripper(
 
         for j in range(n_finger_joints - n_joints + 1, n_finger_joints):
             if j == n_finger_joints - n_joints + 1:
-                u = Unit(20. - gap / 2., height, width, np.pi / 2, angle[i][j] / 2, 10.)
+                u = Unit(20. - gap / 2., expand_dist / height_ratio, width, np.pi / 2, angle[i][j] / 2, 10.)
             elif j == n_finger_joints - 1:
-                u = Unit(L[i][j] - gap / 2., height, width, angle[i][j - 1] / 2., angle[i][j], gap)
+                u = Unit(L[i][j] - gap / 2., expand_dist / height_ratio, width, angle[i][j - 1] / 2., angle[i][j], gap)
             else:
-                u = Unit(L[i][j] - gap, height, width, angle[i][j - 1] / 2., angle[i][j] / 2., gap)
+                u = Unit(L[i][j] - gap, expand_dist / height_ratio, width, angle[i][j - 1] / 2., angle[i][j] / 2., gap)
             units.append(u)
 
         fingers.append(Finger(units, orientation=ori[i]))

@@ -5,7 +5,7 @@ from ContactPoints import ContactPointsGA
 from GeometryUtils import ContactPoints, GraspingObj
 from GripperModel import initialize_gripper
 from GripperModel import FOAMGripper
-from GraspSim import gripper_sim
+from GraspSim import multiple_gripper_sim
 import pybullet as p
 
 if __name__ == "__main__":
@@ -23,36 +23,34 @@ if __name__ == "__main__":
     #     pickle.dump(test_obj, f_test_obj)
     test_obj_urdf = os.path.join(os.path.abspath('..'), "assets/ycb/013_apple.urdf")
 
-    physicsClient = p.connect(p.DIRECT)
-
     design_cnt = 0
     for _ in range(1):
-        ga = ContactPointsGA(test_obj, 4, end_effector_pos,
+        ga = ContactPointsGA(test_obj, test_obj_urdf, 4, end_effector_pos,
                              cross_prob=.8, mutation_factor=.6, maximizeFitness=True,
-                             population_size=100, generations=3, verbose=False, adaptive=False)
-        ga.run(n_workers=6)
+                             population_size=100, generations=50, verbose=True, adaptive=False)
+        ga.run(n_workers=4)
         last_gen = list(ga.last_generation)
-        cp_tested = []
-        widths = np.arange(17.5, 27.5, 2.5)
         del ga
+        cp_tested = []
+        widths = np.linspace(15., 25., 5)
+        height_ratio = np.linspace(1., 2., 5)
+        ww, rr = np.meshgrid(widths, height_ratio)
 
-        for i in range(2):
+        for i in range(10):
             if last_gen[i][1] not in cp_tested and last_gen[i][0] > -2.:
                 cur_gene = last_gen[i][1]
                 cp_tested.append(cur_gene)
                 cps = ContactPoints(test_obj, cur_gene)
-                for w in widths:
-                    _, fingers = initialize_gripper(cps, end_effector_pos, 4, width=w)
+                for i, w in np.ndenumerate(ww):
+                    _, fingers = initialize_gripper(cps, end_effector_pos, 6, height_ratio=rr[i], width=w)
                     gripper = FOAMGripper(fingers)
                     success_cnt = 0
-                    final_pos = None
-                    for _ in range(10):
-                        final_pos = gripper_sim(test_obj, test_obj_urdf, gripper)
-                        if final_pos[-1] > test_obj.cog[-1] + .5 * (.05 * 500 / 240):
+                    final_pos = multiple_gripper_sim(test_obj, test_obj_urdf, [gripper] * 50, p.DIRECT)
+                    for pos in final_pos:
+                        if pos[-1] > test_obj.cog[-1] + .5 * (.05 * 500 / 240):
                             success_cnt += 1
-                    if success_cnt > 5:
+                    if success_cnt > 0:
                         design_cnt += 1
-                        print(cur_gene, f'Width: {w}', final_pos)
+                        print(cur_gene, f'Width: {w} Ratio:{rr[i]}', success_cnt)
                     gripper.clean()
     print(design_cnt)
-    p.disconnect()
