@@ -127,17 +127,6 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
         objPos, _ = p.getBasePositionAndOrientation(id, physicsClient)
         final_pos[i] = objPos
 
-    # start debug
-    with open(os.path.join(os.path.abspath('..'), 'debug.txt'), 'w') as f_debug:
-        for i, f in enumerate(finger_id):
-            joints_pos = []
-            joints_lim = []
-            for j in range(p.getNumJoints(f, physicsClient)):
-                joints_pos.append(p.getJointState(f, j, physicsClient)[0])
-                joints_lim.append(p.getJointInfo(f, j, physicsClient)[9])
-            f_debug.write(f'Gripper {int(i / 4)} Finger {i % 4}: {joints_pos}\t Limit: {joints_lim}\n')
-    # end debug
-
     p.disconnect(physicsClientId=physicsClient)
     # end pybullet test
 

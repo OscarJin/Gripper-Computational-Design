@@ -164,10 +164,10 @@ if __name__ == "__main__":
     with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
               'rb') as f_test_obj:
         test_obj = pickle.load(f_test_obj)
-    cps = ContactPoints(test_obj, [364, 1839, 2268, 3259])
+    cps = ContactPoints(test_obj, [0, 708, 1432, 2856])
     end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
     # test_obj.compute_connectivity_from(end_effector_pos)
-    skeletons = initialize_fingers(cps, end_effector_pos, 8)
+    skeletons = initialize_fingers(cps, end_effector_pos, 8, expand_dist=.02)
     Ls, angles, oris = compute_skeleton(skeletons, cps, end_effector_pos, 8)
     print(Ls, angles, oris)
 
