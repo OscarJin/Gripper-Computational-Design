@@ -5,7 +5,6 @@ from operator import attrgetter
 import copy
 from typing import List
 from concurrent import futures
-from scipy.spatial._qhull import QhullError
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from GripperInitialization import initialize_fingers, compute_skeleton
@@ -30,6 +29,7 @@ class ContactPointsGA(object):
             graspingObjUrdf: str,
             numContact,
             effector_pos,
+            n_finger_joints=8,
             population_size=20,
             generations=100,
             cross_prob=.9,
@@ -43,6 +43,7 @@ class ContactPointsGA(object):
         self._graspObjUrdf = graspingObjUrdf
         self._numContact = numContact
         self._effector_pos = effector_pos
+        self._n_finger_joints = n_finger_joints
         self._lower_bound = 0
         self._upper_bound = self._graspObj.num_faces
 
@@ -67,44 +68,40 @@ class ContactPointsGA(object):
     def fitness(self, gene):
         cps = ContactPoints(obj=self._graspObj, fid=gene)
         if cps.F is None or cps.is_too_low:
-            return -3.
+            return -2.
 
         # pybullet sim
         widths = np.linspace(15., 25., 5)
-        height_ratio = np.linspace(1., 2., 5)
+        height_ratio = np.linspace(1.25, 2., 4)
         ww, rr = np.meshgrid(widths, height_ratio)
 
-        best_skeletons = None
         max_height = 0.
         best_success_cnt = 0
 
         design_cnt = 0
-        # for w in widths:
+        skeletons = initialize_fingers(cps, self._effector_pos, self._n_finger_joints, root_length=.05)
         for i, w in np.ndenumerate(ww):
-            skeletons, fingers = initialize_gripper(cps, self._effector_pos, 8, height_ratio=rr[i], width=w)
+            _, fingers = initialize_gripper(cps, self._effector_pos, self._n_finger_joints, height_ratio=rr[i], width=w, finger_skeletons=skeletons)
             gripper = FOAMGripper(fingers)
-            cur_best_skeletons = None
             cur_max_height = 0.
             success_cnt = 0
             final_pos = multiple_gripper_sim(self._graspObj, self._graspObjUrdf, [gripper] * 20, p.DIRECT)
             for pos in final_pos:
-                if pos[-1] > self._graspObj.cog[-1] + .5 * (.05 * 500 / 240):
+                if self._graspObj.cog[-1] + .5 * (.05 * 500 / 240) < pos[-1] < self._graspObj.cog[-1] + 1.2 * (.05 * 500 / 240):
                     success_cnt += 1
                     if pos[-1] > cur_max_height:
                         cur_max_height = pos[-1]
-                        cur_best_skeletons = skeletons
             gripper.clean()
             if success_cnt > 0:
                 design_cnt += 1
                 if success_cnt > best_success_cnt:
                     best_success_cnt = success_cnt
-                    best_skeletons = cur_best_skeletons
                     max_height = cur_max_height
 
         if design_cnt == 0:
-            return -2.
+            return -1.
 
-        L, _, ori = compute_skeleton(best_skeletons, cps, self._effector_pos, 8)
+        L, _, ori = compute_skeleton(skeletons, cps, self._effector_pos, self._n_finger_joints)
         L_avg = np.average(np.nansum(L, axis=1))
         L_avg /= (self._graspObj.height * 1000)  # normalize
 
