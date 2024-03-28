@@ -115,8 +115,7 @@ class Finger:
 """
             urdf.write(visual)
 
-            if i != 0:
-                collision = f"""
+            collision = f"""
 <collision>
     <origin xyz="{origin} 0 0" rpy="{np.pi} 0 0"/>
     <geometry>
@@ -124,7 +123,7 @@ class Finger:
     </geometry>
 </collision>
 """
-                urdf.write(collision)
+            urdf.write(collision)
 
             urdf.write("</link>\r\n")
             urdf.write("\r\n")
@@ -369,6 +368,14 @@ class FOAMGripper:
                 os.remove(f.filename)
 
 
+def compute_unit_min_right_angle(length: float, height: float, l_angle: float) -> float:
+    l_r = length - height / np.tan(l_angle) if not np.isclose(l_angle, np.pi / 2) else length
+    if l_r > 1:
+        return np.arctan2(height, l_r - 1)
+    else:
+        return np.pi / 2
+
+
 def initialize_gripper(
         cps: ContactPoints, effector_pos,
         n_finger_joints: int,
@@ -382,28 +389,29 @@ def initialize_gripper(
     if finger_skeletons is None:
         finger_skeletons = initialize_fingers(cps, effector_pos, n_finger_joints, expand_dist / 1000, root_length / 1000)
     L, angle, ori = compute_skeleton(finger_skeletons, cps, effector_pos, n_finger_joints)
+    angle *= .95
+    unit_h = expand_dist / height_ratio
     fingers: List[Finger] = []
 
     for i, f in enumerate(finger_skeletons):
         n_joints = np.sum(~np.isnan(f).any(axis=1))
         units: List[Unit] = []
 
-        for j in range(n_finger_joints - n_joints + 1, n_finger_joints - 1):
+        for j in range(n_finger_joints - n_joints + 1, n_finger_joints):
             if j == n_finger_joints - n_joints + 1:
                 # root
-                u = Unit(L[i][j] - 20 - gap / 2., expand_dist / height_ratio, 14, np.pi / 2, angle[i][j] / 2, 20)
-            elif j == n_finger_joints - 2:
+                r_angle = compute_unit_min_right_angle(L[i][j] - 30 - gap / 2., unit_h, np.pi / 2)
+                u = Unit(L[i][j] - 20 - gap / 2., unit_h, 12, np.pi / 2,
+                         max(r_angle, angle[i][j] - np.deg2rad(80)), 20)
+            elif j == n_finger_joints - 1:
                 # end
-                # if angle[i][j] < np.pi / 2:
-                #     h_end = L[i][j + 1] * np.abs(np.sin(angle[i][j]))
-                #     u = Unit(L[i][j] - gap / 2., h_end, width, angle[i][j - 1] * .9 / 2, np.pi / 2, gap)
-                # else:
-                u = Unit(L[i][j] - gap / 2., expand_dist / height_ratio, width, angle[i][j - 1] / 2, angle[i][j] / 2, gap)
+                u = Unit(L[i][j] - gap / 2, unit_h, width, angle[i][j - 1] - units[-1].theta2, np.pi / 2, gap)
             else:
-                u = Unit(L[i][j] - gap, expand_dist / height_ratio, width, angle[i][j - 1] / 2, angle[i][j] / 2, gap)
+                l_angle = angle[i][j - 1] - units[-1].theta2
+                r_angle = compute_unit_min_right_angle(L[i][j] - gap, unit_h, l_angle)
+                u = Unit(L[i][j] - gap, unit_h, width, angle[i][j - 1] - units[-1].theta2,
+                         max(r_angle, angle[i][j] - np.deg2rad(80)), gap)
             units.append(u)
-        # if angle[i][-1] > np.pi / 2:
-        units.append(Unit(L[i][-1] - gap / 2, expand_dist / height_ratio, width, angle[i][-1] / 2, np.pi / 2, gap))
 
         fingers.append(Finger(units, orientation=round(ori[i] * 8 / np.pi) * np.pi / 8))
 

@@ -16,7 +16,7 @@ if __name__ == "__main__":
     # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.stl")
     # test_obj = GraspingObj(friction=0.5)
     # test_obj.read_from_stl(stl_file)
-    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
+    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .04])
     # test_obj.compute_connectivity_from(end_effector_pos)
     # save test_obj
     # with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
@@ -37,7 +37,7 @@ if __name__ == "__main__":
         height_ratio = np.linspace(1.25, 2., 4)
         ww, rr = np.meshgrid(widths, height_ratio)
 
-        for i in range(5):
+        for i in range(2):
             if last_gen[i][1] not in cp_tested and last_gen[i][0] > -1.:
                 cur_gene = last_gen[i][1]
                 cp_tested.append(cur_gene)

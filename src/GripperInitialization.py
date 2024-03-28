@@ -62,6 +62,7 @@ def initialize_finger_skeleton(
         n_finger_joints: int,
         expand_dist=.03,
         root_length=.03,
+        grasp_force=5e-3,
 ):
     vid: int = obj.compute_closest_point(fid)
     finger = np.empty([1, 3], dtype=float)
@@ -102,6 +103,7 @@ def initialize_finger_skeleton(
 
     # offset contact point
     n_cp = obj.normals[fid] / np.linalg.norm(obj.normals[fid])
+    finger[0] -= grasp_force * n_cp
     offset_dist = min(expand_dist, (finger[0][-1] - obj.minHeight) / (1 + max(-n_cp[-1], 1e-6)))
     finger = np.insert(finger, 1, finger[0] + offset_dist * n_cp, axis=0)
     # if len(finger) > 4 and should_pop(finger[1], finger[3], obj):
@@ -149,7 +151,7 @@ def initialize_finger_skeleton(
         res = optimize_triangle(bc,
                                 np.deg2rad(10), np.deg2rad(170),
                                 min(np.deg2rad(10), np.pi - angle_2), np.pi - angle_2,
-                                np.deg2rad(100) - end_angle, np.deg2rad(170) - end_angle
+                                np.deg2rad(110) - end_angle, np.deg2rad(170) - end_angle
                                 )
         ba = bc * np.sin(res.x[2]) / np.sin(res.x[0])
         angle_ba_horizontal = np.arccos(np.dot((finger[1] - finger[2])[:-1], oa) / np.linalg.norm(finger[1] - finger[2])) - res.x[1]
@@ -222,11 +224,15 @@ if __name__ == "__main__":
     with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
               'rb') as f_test_obj:
         test_obj = pickle.load(f_test_obj)
-    cps = ContactPoints(test_obj, [201, 623, 1400, 2815])
-    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
+    cps = ContactPoints(test_obj, [206, 712, 2067, 3062])
+    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .04])
     # test_obj.compute_connectivity_from(end_effector_pos)
+    # with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
+    #           'wb') as f_test_obj:
+    #     pickle.dump(test_obj, f_test_obj)
+
     n_finger_joints = 8
-    skeletons = initialize_fingers(cps, end_effector_pos, n_finger_joints, root_length=.03)
+    skeletons = initialize_fingers(cps, end_effector_pos, n_finger_joints, root_length=.05)
     Ls, angles, oris = compute_skeleton(skeletons, cps, end_effector_pos, n_finger_joints)
     print(Ls, angles, oris)
 

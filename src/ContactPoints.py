@@ -116,7 +116,8 @@ class ContactPointsGA(object):
         #     return 2 * cps.q_fcl + cps.q_vgp - cps.q_dcc + cps.ferrari_canny - .5 * L_avg + .5 * min_ori_diff
         # except QhullError:
         #     return -2.
-        return 2 * best_success_cnt / 20 + max_height / (self._graspObj.cog[-1] + .05 * 500 / 240) - L_avg + min_ori_diff
+        return (2 * best_success_cnt / 20 + max_height / (self._graspObj.cog[-1] + .05 * 500 / 240)
+                + min_ori_diff - .5 * L_avg)
 
     def create_individual(self):
         """create an individual randomly"""
