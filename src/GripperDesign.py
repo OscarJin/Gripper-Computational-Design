@@ -27,10 +27,11 @@ if __name__ == "__main__":
     design_cnt = 0
     for _ in range(1):
         ga = ContactPointsGA(test_obj, test_obj_urdf, 4, end_effector_pos, n_finger_joints=8,
-                             cross_prob=.8, mutation_factor=.6, maximizeFitness=True,
-                             population_size=100, generations=50, verbose=True, adaptive=False)
+                             cross_prob=.8, mutation_factor=.8, maximizeFitness=True,
+                             population_size=200, generations=50, verbose=True, adaptive=False)
         ga.run(n_workers=4)
         last_gen = list(ga.last_generation)
+        ga.visualization()
         del ga
         cp_tested = []
         widths = np.linspace(15., 25., 5)
@@ -38,11 +39,11 @@ if __name__ == "__main__":
         ww, rr = np.meshgrid(widths, height_ratio)
 
         for i in range(2):
-            if last_gen[i][1] not in cp_tested and last_gen[i][0] > -1.:
+            if last_gen[i][1] not in cp_tested and last_gen[i][0] > 0:
                 cur_gene = last_gen[i][1]
                 cp_tested.append(cur_gene)
                 cps = ContactPoints(test_obj, cur_gene)
-                skeleton = initialize_fingers(cps, end_effector_pos, 8, root_length=.05)
+                skeleton = initialize_fingers(cps, end_effector_pos, 8, root_length=.04)
                 for i, w in np.ndenumerate(ww):
                     _, fingers = initialize_gripper(cps, end_effector_pos, 8, height_ratio=rr[i], width=w, finger_skeletons=skeleton)
                     gripper = FOAMGripper(fingers)

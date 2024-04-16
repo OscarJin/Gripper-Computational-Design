@@ -114,8 +114,8 @@ class Finger:
 </inertial>
 """
             urdf.write(visual)
-
-            collision = f"""
+            if i != 0:
+                collision = f"""
 <collision>
     <origin xyz="{origin} 0 0" rpy="{np.pi} 0 0"/>
     <geometry>
@@ -123,7 +123,7 @@ class Finger:
     </geometry>
 </collision>
 """
-            urdf.write(collision)
+                urdf.write(collision)
 
             urdf.write("</link>\r\n")
             urdf.write("\r\n")
@@ -142,7 +142,7 @@ class Finger:
     <parent link="link_{i}"/>
     <child link="link_{i + 1}"/>
     <axis xyz="0 1 0"/>
-    <limit lower="0." upper="{self.calc_joint_limit(self.units[i], self.units[i + 1])}" effort="10." velocity=".1"/>
+    <limit lower="0." upper="{self.calc_joint_limit(self.units[i], self.units[i + 1])}" effort="10."/>
     <dynamics stiffness="100." damping="0.001" />
 </joint>
 """
@@ -174,19 +174,21 @@ class Finger:
         for i in range(self.n_unit):
             cur_v = self.units[i].vertices.copy()
             # bottom
-            bottom_width = self.units[i].width
+            w1 = self.units[i].width
+            w2 = w1 if i == self.n_unit - 1 else self.units[i + 1].width
             bottom_length = self.units[i].length
             if i != self.n_unit - 1:
                 bottom_length += self.units[i + 1].gap
+
             bottom_v = np.asarray([
-                [0, -bottom_width / 2, -bottom_thick],
-                [bottom_length, -bottom_width / 2, -bottom_thick],
-                [bottom_length, bottom_width / 2, -bottom_thick],
-                [0, bottom_width / 2, -bottom_thick],
-                [0, -bottom_width / 2, 0],
-                [bottom_length, -bottom_width / 2, 0],
-                [bottom_length, bottom_width / 2, 0],
-                [0, bottom_width / 2, 0],
+                [0, -w1 / 2, -bottom_thick],
+                [bottom_length, -w2 / 2, -bottom_thick],
+                [bottom_length, w2 / 2, -bottom_thick],
+                [0, w1 / 2, -bottom_thick],
+                [0, -w1 / 2, 0],
+                [bottom_length, -w2 / 2, 0],
+                [bottom_length, w2 / 2, 0],
+                [0, w1 / 2, 0],
             ])
 
             # translation
@@ -401,8 +403,8 @@ def initialize_gripper(
             if j == n_finger_joints - n_joints + 1:
                 # root
                 r_angle = compute_unit_min_right_angle(L[i][j] - 30 - gap / 2., unit_h, np.pi / 2)
-                u = Unit(L[i][j] - 20 - gap / 2., unit_h, 12, np.pi / 2,
-                         max(r_angle, angle[i][j] - np.deg2rad(80)), 20)
+                u = Unit(L[i][j] - 20 - gap / 2., unit_h, width, np.pi / 2,
+                         max(r_angle, angle[i][j] - np.deg2rad(85)), 20)
             elif j == n_finger_joints - 1:
                 # end
                 u = Unit(L[i][j] - gap / 2, unit_h, width, angle[i][j - 1] - units[-1].theta2, np.pi / 2, gap)
@@ -410,7 +412,7 @@ def initialize_gripper(
                 l_angle = angle[i][j - 1] - units[-1].theta2
                 r_angle = compute_unit_min_right_angle(L[i][j] - gap, unit_h, l_angle)
                 u = Unit(L[i][j] - gap, unit_h, width, angle[i][j - 1] - units[-1].theta2,
-                         max(r_angle, angle[i][j] - np.deg2rad(80)), gap)
+                         max(r_angle, angle[i][j] - np.deg2rad(85)), gap)
             units.append(u)
 
         fingers.append(Finger(units, orientation=round(ori[i] * 8 / np.pi) * np.pi / 8))
