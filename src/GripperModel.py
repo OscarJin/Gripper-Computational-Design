@@ -114,7 +114,6 @@ class Finger:
 </inertial>
 """
             urdf.write(visual)
-
             if i != 0:
                 collision = f"""
 <collision>
@@ -143,7 +142,7 @@ class Finger:
     <parent link="link_{i}"/>
     <child link="link_{i + 1}"/>
     <axis xyz="0 1 0"/>
-    <limit lower="0." upper="{self.calc_joint_limit(self.units[i], self.units[i + 1])}" effort="10." velocity=".1"/>
+    <limit lower="0." upper="{self.calc_joint_limit(self.units[i], self.units[i + 1])}" effort="10."/>
     <dynamics stiffness="100." damping="0.001" />
 </joint>
 """
@@ -155,6 +154,9 @@ class Finger:
     def __del__(self):
         if os.path.exists(self.filename):
             os.remove(self.filename)
+
+    def __repr__(self):
+        return repr({'id': self.id, 'orientation': int(self.orientation / np.deg2rad(22.5)) * 22.5})
 
     @staticmethod
     def calc_joint_limit(unit1: Unit, unit2: Unit):
@@ -171,30 +173,37 @@ class Finger:
         finger_meshes = []
         for i in range(self.n_unit):
             cur_v = self.units[i].vertices.copy()
+            # bottom
+            w1 = self.units[i].width
+            w2 = w1 if i == self.n_unit - 1 else self.units[i + 1].width
+            bottom_length = self.units[i].length
+            if i != self.n_unit - 1:
+                bottom_length += self.units[i + 1].gap
+
+            bottom_v = np.asarray([
+                [0, -w1 / 2, -bottom_thick],
+                [bottom_length, -w2 / 2, -bottom_thick],
+                [bottom_length, w2 / 2, -bottom_thick],
+                [0, w1 / 2, -bottom_thick],
+                [0, -w1 / 2, 0],
+                [bottom_length, -w2 / 2, 0],
+                [bottom_length, w2 / 2, 0],
+                [0, w1 / 2, 0],
+            ])
+
+            # translation
             if i != 0:
                 totLength += self.units[i - 1].length + self.units[i].gap
             cur_v[:, 0] += totLength
+            bottom_v[:, 0] += totLength
+
             cur_f = self.units[i].faces.copy()
             cur_mesh = trimesh.Trimesh(vertices=cur_v, faces=cur_f)
+            cur_bottom_mesh = trimesh.Trimesh(vertices=bottom_v, faces=cur_f)
             finger_meshes.append(cur_mesh)
+            finger_meshes.append(cur_bottom_mesh)
 
         totLength += self.units[-1].length
-        bottom_width = self.units[0].width
-        sub_length = np.linspace(0, totLength, 2 * self.n_unit)
-        for i in range(2 * self.n_unit - 1):
-            bottom_v = np.asarray([
-                [sub_length[i], -bottom_width / 2, -bottom_thick],
-                [sub_length[i + 1], -bottom_width / 2, -bottom_thick],
-                [sub_length[i + 1], bottom_width / 2, -bottom_thick],
-                [sub_length[i], bottom_width / 2, -bottom_thick],
-                [sub_length[i], -bottom_width / 2, 0],
-                [sub_length[i + 1], -bottom_width / 2, 0],
-                [sub_length[i + 1], bottom_width / 2, 0],
-                [sub_length[i], bottom_width / 2, 0],
-            ])
-            bottom_f = self.units[0].faces
-            bottom_mesh = trimesh.Trimesh(vertices=bottom_v, faces=bottom_f)
-            finger_meshes.append(bottom_mesh)
 
         finger_mesh = trimesh.boolean.union(finger_meshes)
 
@@ -284,56 +293,11 @@ class FOAMGripper:
         self.fingers = fingers
         self.id = _create_id()
 
-    def assemble(self, export=True, bottom_thick=1.2, palm_ratio=1.2):
+    def assemble(self, export=True, bottom_thick=1.2):
         gripper_meshes = []
         for f in self.fingers:
-            cur_mesh = f.assemble(bottom_thick=bottom_thick, export=False)
-            cur_v = cur_mesh.vertices
-            cur_v = self.rotate(cur_v, np.pi - f.orientation)
-            cur_f = cur_mesh.faces
-            cur_mesh = trimesh.Trimesh(vertices=cur_v, faces=cur_f)
-            gripper_meshes.append(cur_mesh)
-
-        # palm
-        t_h = min(3., self.min_unit_height - 1.)
-        hPalm = self.min_unit_height
-        r_palm = palm_ratio * self.min_distance_to_center
-        cylinder_v, cylinder_f = self.create_cylinder(radius=r_palm, z1=hPalm, z2=-bottom_thick)
-        cylinder_mesh = trimesh.Trimesh(vertices=cylinder_v, faces=cylinder_f)
-        gripper_meshes.append(cylinder_mesh)
-
-        gripper_mesh = trimesh.boolean.union(gripper_meshes)
-
-        # phi8.4 hole
-        r = min(4.3, palm_ratio * self.min_distance_to_center - .4)
-
-        cylinder_v, cylinder_f = self.create_cylinder(radius=r, z1=t_h, z2=-bottom_thick)
-        cylinder_mesh = trimesh.Trimesh(vertices=cylinder_v, faces=cylinder_f)
-        gripper_mesh = trimesh.boolean.difference([gripper_mesh, cylinder_mesh])
-
-        t_w = 3.
-        for f in self.fingers:
-            t_h = min(2., f.min_unit_height / 2)
-            t_v = np.asarray([
-                [0, -t_w / 2, 0],
-                [r_palm, -t_w / 2, 0],
-                [r_palm, t_w / 2, 0],
-                [0, t_w / 2, 0],
-                [0, -t_w / 2, t_h],
-                [r_palm, -t_w / 2, t_h],
-                [r_palm, t_w / 2, t_h],
-                [0, t_w / 2, t_h],
-            ])
-            t_v = self.rotate(t_v, np.pi - f.orientation)
-            t_f = f.units[0].faces.copy()
-            t_mesh = trimesh.Trimesh(vertices=t_v, faces=t_f)
-            gripper_mesh = trimesh.boolean.difference([gripper_mesh, t_mesh])
-
-        if export:
-            stl_file = os.path.join(os.path.abspath('..'), "assets/gripper_" + self.id + ".stl")
-            gripper_mesh.export(stl_file)
-
-        return gripper_mesh
+            f.assemble(bottom_thick=bottom_thick, export=export)
+            print(f)
 
     @staticmethod
     def rotate(v, theta):
@@ -397,32 +361,6 @@ class FOAMGripper:
                 h_min = min(h_min, u.height)
         return h_min
 
-    def seal_mask(self, export=True, extend=10., wall_thick=4.):
-        inner_masks = []
-        for f in self.fingers:
-            cur_mesh = f.mask(extend=extend)
-            cur_v = cur_mesh.vertices
-            cur_v = self.rotate(cur_v, np.pi - f.orientation)
-            inner_masks.append(trimesh.Trimesh(vertices=cur_v, faces=cur_mesh.faces))
-        inner_mask = trimesh.boolean.union(inner_masks)
-
-        outer_masks = []
-        for f in self.fingers:
-            cur_mesh = f.mask(extend=extend + wall_thick)
-            cur_v = cur_mesh.vertices
-            cur_v = self.rotate(cur_v, np.pi - f.orientation)
-            outer_masks.append(trimesh.Trimesh(vertices=cur_v, faces=cur_mesh.faces))
-
-        outer_mask = trimesh.boolean.union(outer_masks)
-
-        mask = trimesh.boolean.difference([outer_mask, inner_mask])
-
-        if export:
-            stl_file = os.path.join(os.path.abspath('..'), "assets/gripper_mask_" + self.id + ".stl")
-            mask.export(stl_file)
-
-        return mask
-
     def clean(self):
         for f in self.fingers:
             for u in f.units:
@@ -432,16 +370,29 @@ class FOAMGripper:
                 os.remove(f.filename)
 
 
+def compute_unit_min_right_angle(length: float, height: float, l_angle: float) -> float:
+    l_r = length - height / np.tan(l_angle) if not np.isclose(l_angle, np.pi / 2) else length
+    if l_r > 1:
+        return np.arctan2(height, l_r - 1)
+    else:
+        return np.pi / 2
+
+
 def initialize_gripper(
         cps: ContactPoints, effector_pos,
         n_finger_joints: int,
-        expand_dist=20.,
+        expand_dist=30.,
+        root_length=30.,
         height_ratio=1.5,
         width=20.,
         gap=2.,
+        finger_skeletons=None,
 ):
-    finger_skeletons = initialize_fingers(cps, effector_pos, n_finger_joints, expand_dist / 1000)
+    if finger_skeletons is None:
+        finger_skeletons = initialize_fingers(cps, effector_pos, n_finger_joints, expand_dist / 1000, root_length / 1000)
     L, angle, ori = compute_skeleton(finger_skeletons, cps, effector_pos, n_finger_joints)
+    angle *= .95
+    unit_h = expand_dist / height_ratio
     fingers: List[Finger] = []
 
     for i, f in enumerate(finger_skeletons):
@@ -450,122 +401,20 @@ def initialize_gripper(
 
         for j in range(n_finger_joints - n_joints + 1, n_finger_joints):
             if j == n_finger_joints - n_joints + 1:
-                u = Unit(20. - gap / 2., expand_dist / height_ratio, width, np.pi / 2, angle[i][j] / 2, 10.)
+                # root
+                r_angle = compute_unit_min_right_angle(L[i][j] - 30 - gap / 2., unit_h, np.pi / 2)
+                u = Unit(L[i][j] - 20 - gap / 2., unit_h, width, np.pi / 2,
+                         max(r_angle, angle[i][j] - np.deg2rad(85)), 20)
             elif j == n_finger_joints - 1:
-                u = Unit(L[i][j] - gap / 2., expand_dist / height_ratio, width, angle[i][j - 1] / 2., angle[i][j], gap)
+                # end
+                u = Unit(L[i][j] - gap / 2, unit_h, width, angle[i][j - 1] - units[-1].theta2, np.pi / 2, gap)
             else:
-                u = Unit(L[i][j] - gap, expand_dist / height_ratio, width, angle[i][j - 1] / 2., angle[i][j] / 2., gap)
+                l_angle = angle[i][j - 1] - units[-1].theta2
+                r_angle = compute_unit_min_right_angle(L[i][j] - gap, unit_h, l_angle)
+                u = Unit(L[i][j] - gap, unit_h, width, angle[i][j - 1] - units[-1].theta2,
+                         max(r_angle, angle[i][j] - np.deg2rad(85)), gap)
             units.append(u)
 
-        fingers.append(Finger(units, orientation=ori[i]))
+        fingers.append(Finger(units, orientation=round(ori[i] * 8 / np.pi) * np.pi / 8))
 
     return finger_skeletons, fingers
-
-
-from GeometryUtils import GraspingObj
-import pickle
-
-if __name__ == "__main__":
-    import pybullet as p
-    import pybullet_data
-    # test
-    # unit_10 = Unit(9., 20., 20., np.pi / 2, 0.96206061, 20.)
-    # unit_11 = Unit(69.716727, 20., 20., 0.96206061, 1.3867712, 2.)
-    # unit_12 = Unit(9.40482481, 20., 20., 1.3867712, 1.352039875, 2.)
-    # unit_13 = Unit(56.42058147, 20., 20., 1.352039875, 0.41261234, 2.)
-    # finger_1 = Finger([unit_10, unit_11, unit_12, unit_13], -2.83609789)
-    #
-    # unit_20 = Unit(9., 20., 20., np.pi / 2, 0.93984609, 20.)
-    # unit_21 = Unit(11.99954375, 20., 20., 0.93984609, 1.443382455, 2.)
-    # unit_22 = Unit(24.03323496, 20., 20., 1.443382455, 1.00161288, 2.)
-    # finger_2 = Finger([unit_20, unit_21, unit_22], -0.88539239)
-    #
-    # unit_30 = Unit(9., 20., 20., np.pi / 2, 0.965114735, 20.)
-    # unit_31 = Unit(22.78736356, 20., 20., 0.965114735, 1.24382005, 2.)
-    # unit_32 = Unit(28.90136904, 20., 20., 1.24382005, 0.29255161, 2.)
-    # finger_3 = Finger([unit_30, unit_31, unit_32], 0.40175351)
-    #
-    # unit_40 = Unit(9., 20., 20., np.pi / 2, 0.91361506, 20.)
-    # unit_41 = Unit(37.52607133, 20., 20., 0.91361506, 0.933024, 2.)
-    # unit_42 = Unit(22.03892, 20., 20., 0.933024, 1.0873191, 2.)
-    # finger_4 = Finger([unit_40, unit_41, unit_42], 1.3071038)
-    # gripper = FOAMGripper([finger_1, finger_2, finger_3, finger_4])
-
-    # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
-    # test_obj = GraspingObj(friction=0.5)
-    # test_obj.read_from_stl(stl_file)
-    with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
-              'rb') as f_test_obj:
-        test_obj = pickle.load(f_test_obj)
-    cps = ContactPoints(test_obj, [1604, 487, 2509, 2863])
-    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
-    _, fingers = initialize_gripper(cps, end_effector_pos, 4, width=20.)
-    gripper = FOAMGripper(fingers)
-
-    # save test_obj
-    # with open(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.pickle"), 'wb') as f_test_obj:
-    #     pickle.dump(test_obj, f_test_obj)
-
-    # begin pybullet test
-    physicsClient = p.connect(p.GUI)
-    p.setGravity(0, 0, -9.8)
-
-    p.setAdditionalSearchPath(pybullet_data.getDataPath())
-    planeId = p.loadURDF("plane.urdf")
-
-    startPos = [0., 0., test_obj.cog[-1]]
-    startOrientation = p.getQuaternionFromEuler([0, 0, 0])
-    box_id = p.loadURDF(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple.urdf"), startPos, startOrientation,
-                        flags=p.URDF_USE_SELF_COLLISION | p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT)
-    p.changeDynamics(box_id, -1, mass=50e-3, lateralFriction=.5)
-
-    finger_id = []
-    for f in gripper.fingers:
-        startPos = [0, 0, test_obj.height + .02]
-        startOrientation = p.getQuaternionFromEuler([0, 0, f.orientation])
-        f_id = p.loadURDF(f.filename, startPos, startOrientation, useFixedBase=1,
-                          flags=p.URDF_USE_SELF_COLLISION | p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT)
-        finger_id.append(f_id)
-
-    p.setRealTimeSimulation(0)
-    # p.performCollisionDetection()
-    # p.enableJointForceTorqueSensor(finger_id[0], 1, 1)
-
-    for i in range(500):
-        for f in finger_id:
-            for j in range(p.getNumJoints(f)):
-                limit = p.getJointInfo(f, j)[9]
-                p.setJointMotorControl2(f, j, p.POSITION_CONTROL, targetPosition=min(0.01 * i, .95 * limit))
-        objPos, _ = p.getBasePositionAndOrientation(box_id)
-        p.resetDebugVisualizerCamera(cameraDistance=0.3, cameraYaw=50, cameraPitch=-30,
-                                     cameraTargetPosition=[0, 0., .05 + objPos[2]])
-        # print(p.getJointState(finger_id[0], 1))
-        p.stepSimulation()
-        time.sleep(1. / 240.)
-
-    for _ in range(500):
-        for f in finger_id:
-            for j in range(p.getNumJoints(f)):
-                limit = p.getJointInfo(f, j)[9]
-                p.setJointMotorControl2(f, j, p.POSITION_CONTROL, targetPosition=.95 * limit)
-            p.resetBaseVelocity(f, [0, 0, .05])
-        objPos, _ = p.getBasePositionAndOrientation(box_id)
-        p.resetDebugVisualizerCamera(cameraDistance=0.3, cameraYaw=50, cameraPitch=-30,
-                                     cameraTargetPosition=[0, 0., .05 + objPos[2]])
-        p.stepSimulation()
-        # print(p.getJointState(finger_id[0], 1))
-        time.sleep(1. / 240.)
-
-    print(p.getBasePositionAndOrientation(box_id))
-    for f in finger_id:
-        cps = p.getContactPoints(box_id, f)
-        for cp in cps:
-            print(cp[9])  # normal force
-        # print("\n")
-
-    p.disconnect()
-    # end pybullet test
-
-    # gripper.assemble(bottom_thick=1.2)
-    # gripper.seal_mask()
-    gripper.clean()

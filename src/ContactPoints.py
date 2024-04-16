@@ -5,7 +5,6 @@ from operator import attrgetter
 import copy
 from typing import List
 from concurrent import futures
-from scipy.spatial._qhull import QhullError
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from GripperInitialization import initialize_fingers, compute_skeleton
@@ -30,6 +29,7 @@ class ContactPointsGA(object):
             graspingObjUrdf: str,
             numContact,
             effector_pos,
+            n_finger_joints=8,
             population_size=20,
             generations=100,
             cross_prob=.9,
@@ -43,6 +43,7 @@ class ContactPointsGA(object):
         self._graspObjUrdf = graspingObjUrdf
         self._numContact = numContact
         self._effector_pos = effector_pos
+        self._n_finger_joints = n_finger_joints
         self._lower_bound = 0
         self._upper_bound = self._graspObj.num_faces
 
@@ -64,47 +65,22 @@ class ContactPointsGA(object):
         self._verbose = verbose
         self._random = random.Random(random_state)
 
-    def fitness(self, gene):
+    def fitness(self, gene) -> float:
         cps = ContactPoints(obj=self._graspObj, fid=gene)
         if cps.F is None or cps.is_too_low:
-            return -3.
+            return -1
 
         # pybullet sim
         widths = np.linspace(15., 25., 5)
-        height_ratio = np.linspace(1., 2., 5)
+        height_ratio = np.linspace(1.25, 2., 4)
         ww, rr = np.meshgrid(widths, height_ratio)
 
-        best_skeletons = None
         max_height = 0.
         best_success_cnt = 0
-
         design_cnt = 0
-        # for w in widths:
-        for i, w in np.ndenumerate(ww):
-            skeletons, fingers = initialize_gripper(cps, self._effector_pos, 8, height_ratio=rr[i], width=w)
-            gripper = FOAMGripper(fingers)
-            cur_best_skeletons = None
-            cur_max_height = 0.
-            success_cnt = 0
-            final_pos = multiple_gripper_sim(self._graspObj, self._graspObjUrdf, [gripper] * 20, p.DIRECT)
-            for pos in final_pos:
-                if pos[-1] > self._graspObj.cog[-1] + .5 * (.05 * 500 / 240):
-                    success_cnt += 1
-                    if pos[-1] > cur_max_height:
-                        cur_max_height = pos[-1]
-                        cur_best_skeletons = skeletons
-            gripper.clean()
-            if success_cnt > 0:
-                design_cnt += 1
-                if success_cnt > best_success_cnt:
-                    best_success_cnt = success_cnt
-                    best_skeletons = cur_best_skeletons
-                    max_height = cur_max_height
+        skeletons = initialize_fingers(cps, self._effector_pos, self._n_finger_joints, root_length=.04, grasp_force=1e-3)
 
-        if design_cnt == 0:
-            return -2.
-
-        L, _, ori = compute_skeleton(best_skeletons, cps, self._effector_pos, 8)
+        L, _, ori = compute_skeleton(skeletons, cps, self._effector_pos, self._n_finger_joints)
         L_avg = np.average(np.nansum(L, axis=1))
         L_avg /= (self._graspObj.height * 1000)  # normalize
 
@@ -113,13 +89,36 @@ class ContactPointsGA(object):
         for i in range(len(ori_sort)):
             diff = (ori_sort[0] + 2 * np.pi) - ori_sort[-1] if i == len(ori_sort) - 1 else ori_sort[i + 1] - ori_sort[i]
             min_ori_diff = min(min_ori_diff, diff)
-        min_ori_diff /= (2 * np.pi / len(ori))
 
-        # try:
-        #     return 2 * cps.q_fcl + cps.q_vgp - cps.q_dcc + cps.ferrari_canny - .5 * L_avg + .5 * min_ori_diff
-        # except QhullError:
-        #     return -2.
-        return 2 * best_success_cnt / 20 + max_height / (self._graspObj.cog[-1] + .05 * 500 / 240) - L_avg + min_ori_diff
+        if min_ori_diff < np.deg2rad(22.5):
+            return -1
+
+        for i, w in np.ndenumerate(ww):
+            if w > 20 * np.tan(min_ori_diff / 2) * 2:
+                continue
+            _, fingers = initialize_gripper(cps, self._effector_pos, self._n_finger_joints,
+                                            height_ratio=rr[i], width=w, finger_skeletons=skeletons)
+            gripper = FOAMGripper(fingers)
+            cur_max_height = 0.
+            success_cnt = 0
+            final_pos = multiple_gripper_sim(self._graspObj, self._graspObjUrdf, [gripper] * 20, p.DIRECT)
+            for pos in final_pos:
+                if self._graspObj.cog[-1] + .5 * (.05 * 500 / 240) < pos[-1] < self._graspObj.cog[-1] + 1.2 * (.05 * 500 / 240):
+                    success_cnt += 1
+                    if pos[-1] > cur_max_height:
+                        cur_max_height = pos[-1]
+            gripper.clean()
+            if success_cnt > 0:
+                design_cnt += 1
+                if success_cnt > best_success_cnt:
+                    best_success_cnt = success_cnt
+                    max_height = cur_max_height
+
+        if design_cnt == 0:
+            return 0
+
+        return (2 * best_success_cnt / 20 + max_height / (self._graspObj.cog[-1] + .05 * 500 / 240)
+                + min_ori_diff / (2 * np.pi / len(ori)) - .5 * L_avg)
 
     def create_individual(self):
         """create an individual randomly"""
@@ -219,7 +218,8 @@ class ContactPointsGA(object):
         # self.calculate_population_fitness()
         self.rank_population()
         if self._verbose:
-            print("Fitness: %f" % self.best_individual[0])
+            print("Best:", end=" ")
+            print(self.best_individual)
 
     def check_convergence(self, std):
         if std < .05 * self.best_individual[0]:
@@ -254,12 +254,14 @@ class ContactPointsGA(object):
             self._history_fitness.append(self.best_individual[0])
             self._history_fitness_avg.append(avg)
             self._history_fitness_std.append(std)
+            if self._verbose:
+                print(f'avg: {avg}')
 
             if self.check_convergence(std):
                 self._generations_stop = g + 1
                 break
 
-    def visualisation(self):
+    def visualization(self):
         plt.figure(dpi=300)
         plt.plot(range(self._generations_stop), self._history_fitness, color='r', linewidth=1.5)
         plt.plot(range(self._generations_stop), self._history_fitness_avg, color='b', linewidth=1.5)
@@ -333,7 +335,7 @@ if __name__ == "__main__":
     t2 = time.time()
     print(f"Elapsed time: {t2 - t1} seconds")
     print(ga.best_individual)
-    ga.visualisation()
+    ga.visualization()
     bestCP = ContactPoints(test_obj, ga.best_individual[1])
     bestCP.calc_force(verbose=True)
     bestCP.visualisation(vector_ratio=.2)
