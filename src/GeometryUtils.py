@@ -29,9 +29,9 @@ class GraspingObj(object):
         self.maxHeight = 0.
         self.height = 0.
         # for compute connectivity
-        self.dist = None
-        self.parent = None
-        self.effector_pos = None
+        self.dist = {}
+        self.parent = {}
+        self.effector_pos = []
 
     def read_from_stl(self, filename):
         self._mesh = mesh.Mesh.from_file(filename)
@@ -172,7 +172,9 @@ class GraspingObj(object):
                 self.id = id
                 self.dist = dist
 
-        self.effector_pos = origin
+        if any(np.array_equal(origin, pos) for pos in self.effector_pos):
+            return
+        self.effector_pos.append(origin)
         dist = np.full(self.num_vertices, np.inf, dtype=float)
         parent = np.full(self.num_vertices, -2, dtype=int)
         edges: List[List[EdgeInfo]] = [[] for _ in range(self.num_vertices)]
@@ -193,15 +195,6 @@ class GraspingObj(object):
                           desc="Computing connectivity from end effector"):
                 pass
 
-        # for i, v in enumerate(self.vertices):
-        #     direction = v - origin
-        #     direction -= direction / np.linalg.norm(direction) * 1e-6
-        #     if not self.intersect_segment(origin, direction):
-        #         dist[i] = np.linalg.norm(v - origin)
-        #         parent[i] = -1
-        #         q.put(VertexInfo(i, dist[i]))
-        #         print(f"{i}, ok")
-
         for i, f in enumerate(self.faces):
             for j in range(3):
                 u = f[j]
@@ -220,8 +213,8 @@ class GraspingObj(object):
                     parent[next.id] = now.id
                     q.put(VertexInfo(next.id, next_dist))
 
-        self.dist = dist
-        self.parent = parent
+        self.dist[tuple(origin)] = dist
+        self.parent[tuple(origin)] = parent
 
     def compute_closest_point(self, fid: int) -> int:
         center = np.average(self.faces[fid], axis=0)
@@ -385,7 +378,7 @@ class ContactPoints(object):
 
     @property
     def is_too_low(self):
-        h_threshold = self._obj.minHeight + self._obj.height * .3
+        h_threshold = self._obj.minHeight + self._obj.height * .2
         for p in self.position:
             if p[2] < h_threshold:
                 return True
@@ -402,16 +395,15 @@ class ContactPoints(object):
 
 if __name__ == "__main__":
     # test
-    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/google_16k/nontextured.stl")
+    stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/011_banana/011_banana.stl")
     test_obj = GraspingObj(friction=0.5)
     test_obj.read_from_stl(stl_file)
-    print(test_obj.num_faces, test_obj.num_vertices,test_obj.volume, test_obj.cog, test_obj.furthest_dist)
+    print(test_obj.num_faces, test_obj.num_vertices, test_obj.volume, test_obj.cog, test_obj.furthest_dist)
     print(test_obj.minHeight, test_obj.maxHeight)
-    print(test_obj.cog.tolist())
     # cps = ContactPoints(test_obj, [35, 56, 62])
     cps = ContactPoints(test_obj, [1604, 487, 2509, 2863])
     cps.calc_force(verbose=True)
-    # cps.visualisation(vector_ratio=.5)
+    cps.visualisation(vector_ratio=.5)
 
     print(cps.is_too_low)
 
@@ -419,9 +411,9 @@ if __name__ == "__main__":
     # direction = (np.average(test_obj.faces[5], axis=0) - start) * 1.5
     # print(test_obj.intersect_segment(start, direction))
 
-    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
-    test_obj.compute_connectivity_from(end_effector_pos)
-
-    p_id = test_obj.compute_closest_point(cps.fid[0])
-    print(p_id, test_obj.vertices[p_id])
-    print(test_obj.compute_vertex_normal(593))
+    # end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
+    # test_obj.compute_connectivity_from(end_effector_pos)
+    #
+    # p_id = test_obj.compute_closest_point(cps.fid[0])
+    # print(p_id, test_obj.vertices[p_id])
+    # print(test_obj.compute_vertex_normal(593))

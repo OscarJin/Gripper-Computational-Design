@@ -12,7 +12,7 @@ import pybullet as p
 if __name__ == "__main__":
     with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
               'rb') as f_test_obj:
-        test_obj = pickle.load(f_test_obj)
+        test_obj: GraspingObj = pickle.load(f_test_obj)
     # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.stl")
     # test_obj = GraspingObj(friction=0.5)
     # test_obj.read_from_stl(stl_file)
@@ -26,8 +26,8 @@ if __name__ == "__main__":
 
     design_cnt = 0
     for _ in range(1):
-        ga = ContactPointsGA(test_obj, test_obj_urdf, 4, end_effector_pos, n_finger_joints=8,
-                             cross_prob=.8, mutation_factor=.8, maximizeFitness=True,
+        ga = ContactPointsGA(test_obj, test_obj_urdf, 4, n_finger_joints=8,
+                             cross_prob=.8, mutation_factor=.6, maximizeFitness=True,
                              population_size=200, generations=50, verbose=True, adaptive=False)
         ga.run(n_workers=4)
         last_gen = list(ga.last_generation)
@@ -35,7 +35,7 @@ if __name__ == "__main__":
         del ga
         cp_tested = []
         widths = np.linspace(15., 25., 5)
-        height_ratio = np.linspace(1.25, 2., 4)
+        height_ratio = np.linspace(0.2, 0.8, 4)
         ww, rr = np.meshgrid(widths, height_ratio)
 
         for i in range(2):
@@ -43,17 +43,24 @@ if __name__ == "__main__":
                 cur_gene = last_gen[i][1]
                 cp_tested.append(cur_gene)
                 cps = ContactPoints(test_obj, cur_gene)
-                skeleton = initialize_fingers(cps, end_effector_pos, 8, root_length=.04)
-                for i, w in np.ndenumerate(ww):
-                    _, fingers = initialize_gripper(cps, end_effector_pos, 8, height_ratio=rr[i], width=w, finger_skeletons=skeleton)
-                    gripper = FOAMGripper(fingers)
-                    success_cnt = 0
-                    final_pos = multiple_gripper_sim(test_obj, test_obj_urdf, [gripper] * 50, p.DIRECT)
-                    for pos in final_pos:
-                        if pos[-1] > test_obj.cog[-1] + .5 * (.05 * 500 / 240):
-                            success_cnt += 1
-                    if success_cnt > 0:
-                        design_cnt += 1
-                        print(cur_gene, f'Width: {w} Ratio:{rr[i]}', success_cnt)
-                    gripper.clean()
+                for end_pos in test_obj.effector_pos:
+                    end_height = end_pos[-1] - test_obj.maxHeight
+                    skeleton = initialize_fingers(cps, end_pos, 8,
+                                                  expand_dist=end_height, root_length=.04, grasp_force=1e-3)
+                    for i, w in np.ndenumerate(ww):
+                        if end_height * rr[i] < .015:
+                            continue
+                        _, fingers = initialize_gripper(cps, end_pos, 8,
+                                                        expand_dist=end_height * 1000,
+                                                        height_ratio=rr[i], width=w, finger_skeletons=skeleton)
+                        gripper = FOAMGripper(fingers)
+                        success_cnt = 0
+                        final_pos = multiple_gripper_sim(test_obj, test_obj_urdf, [gripper] * 50, end_height, p.DIRECT)
+                        for pos in final_pos:
+                            if pos[-1] > test_obj.cog[-1] + .5 * (.05 * 500 / 240):
+                                success_cnt += 1
+                        if success_cnt > 0:
+                            design_cnt += 1
+                            print(cur_gene, f'Width: {w} Ratio:{rr[i]}', success_cnt)
+                        gripper.clean()
     print(design_cnt)

@@ -84,7 +84,7 @@ def initialize_finger_skeleton(
             fingerVid = fingerVid[:-1]
         finger = np.concatenate((finger, toPush.reshape((1, 3))), axis=0)
         fingerVid.append(vid)
-        vid = obj.parent[vid]
+        vid = obj.parent[tuple(effector_pos)][vid]
     finger = np.concatenate((finger, effector_pos.reshape((1, 3))), axis=0)
     fingerVid.append(-1)
 
@@ -233,8 +233,8 @@ def initialize_finger_skeleton(
 
 def initialize_fingers(cps: ContactPoints, effector_pos, n_finger_joints: int, expand_dist=.03, root_length=.03,
                        grasp_force=1e-3):
-    if cps.obj.effector_pos is None or not np.all(np.isclose(cps.obj.effector_pos, effector_pos)):
-        cps.obj.compute_connectivity_from(effector_pos)
+    # if cps.obj.effector_pos is None or not np.all(np.isclose(cps.obj.effector_pos, effector_pos)):
+    cps.obj.compute_connectivity_from(effector_pos)
 
     res = np.empty([cps.nContact, n_finger_joints + 1, 3])
     for i in range(cps.nContact):
@@ -268,19 +268,24 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import pickle
 
 if __name__ == "__main__":
-    # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
+    # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.stl")
     # test_obj = GraspingObj(friction=0.5)
     # test_obj.read_from_stl(stl_file)
     with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
               'rb') as f_test_obj:
-        test_obj = pickle.load(f_test_obj)
+        test_obj: GraspingObj = pickle.load(f_test_obj)
     cps = ContactPoints(test_obj, [0, 544, 1601, 2763])
-    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .04])
-    # test_obj.compute_connectivity_from(end_effector_pos)
+    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight])
+    heights = np.arange(4, test_obj.height * 100, 1) / 100
+    for h in heights:
+        pos = end_effector_pos.copy()
+        pos[-1] += h
+        test_obj.compute_connectivity_from(pos)
     # with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
     #           'wb') as f_test_obj:
     #     pickle.dump(test_obj, f_test_obj)
 
+    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .04])
     n_finger_joints = 8
     skeletons = initialize_fingers(cps, end_effector_pos, n_finger_joints, root_length=.04)
     Ls, angles, oris = compute_skeleton(skeletons, cps, end_effector_pos, n_finger_joints)
