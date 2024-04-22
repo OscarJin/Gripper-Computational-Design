@@ -28,7 +28,6 @@ class ContactPointsGA(object):
             graspingObj: GraspingObj,
             graspingObjUrdf: str,
             numContact,
-            effector_pos,
             n_finger_joints=8,
             population_size=20,
             generations=100,
@@ -42,7 +41,6 @@ class ContactPointsGA(object):
         self._graspObj = graspingObj
         self._graspObjUrdf = graspingObjUrdf
         self._numContact = numContact
-        self._effector_pos = effector_pos
         self._n_finger_joints = n_finger_joints
         self._lower_bound = 0
         self._upper_bound = self._graspObj.num_faces
@@ -72,53 +70,60 @@ class ContactPointsGA(object):
 
         # pybullet sim
         widths = np.linspace(15., 25., 5)
-        height_ratio = np.linspace(1.25, 2., 4)
+        height_ratio = np.linspace(0.4, 0.7, 4)
         ww, rr = np.meshgrid(widths, height_ratio)
 
         max_height = 0.
         best_success_cnt = 0
         design_cnt = 0
-        skeletons = initialize_fingers(cps, self._effector_pos, self._n_finger_joints, root_length=.04, grasp_force=1e-3)
+        L_avg = np.inf
+        for end_pos in self._graspObj.effector_pos:
+            end_height = end_pos[-1] - self._graspObj.maxHeight
+            skeletons = initialize_fingers(cps, end_pos, self._n_finger_joints,
+                                           expand_dist=end_height, root_length=.04, grasp_force=1e-3)
 
-        L, _, ori = compute_skeleton(skeletons, cps, self._effector_pos, self._n_finger_joints)
-        L_avg = np.average(np.nansum(L, axis=1))
-        L_avg /= (self._graspObj.height * 1000)  # normalize
+            L, _, ori = compute_skeleton(skeletons, cps, end_pos, self._n_finger_joints)
+            L_avg = np.average(np.nansum(L, axis=1))
+            L_avg /= (self._graspObj.height * 1000)  # normalize
 
-        ori_sort = np.sort(ori, kind='heapsort')
-        min_ori_diff = np.inf
-        for i in range(len(ori_sort)):
-            diff = (ori_sort[0] + 2 * np.pi) - ori_sort[-1] if i == len(ori_sort) - 1 else ori_sort[i + 1] - ori_sort[i]
-            min_ori_diff = min(min_ori_diff, diff)
+            ori_sort = np.sort(ori, kind='heapsort')
+            min_ori_diff = np.inf
+            for i in range(len(ori_sort)):
+                diff = (ori_sort[0] + 2 * np.pi) - ori_sort[-1] if i == len(ori_sort) - 1 else ori_sort[i + 1] - ori_sort[i]
+                min_ori_diff = min(min_ori_diff, diff)
 
-        if min_ori_diff < np.deg2rad(22.5):
-            return -1
+            if min_ori_diff < np.deg2rad(22.5):
+                return -1
 
-        for i, w in np.ndenumerate(ww):
-            if w > 20 * np.tan(min_ori_diff / 2) * 2:
-                continue
-            _, fingers = initialize_gripper(cps, self._effector_pos, self._n_finger_joints,
-                                            height_ratio=rr[i], width=w, finger_skeletons=skeletons)
-            gripper = FOAMGripper(fingers)
-            cur_max_height = 0.
-            success_cnt = 0
-            final_pos = multiple_gripper_sim(self._graspObj, self._graspObjUrdf, [gripper] * 20, p.DIRECT)
-            for pos in final_pos:
-                if self._graspObj.cog[-1] + .5 * (.05 * 500 / 240) < pos[-1] < self._graspObj.cog[-1] + 1.2 * (.05 * 500 / 240):
-                    success_cnt += 1
-                    if pos[-1] > cur_max_height:
-                        cur_max_height = pos[-1]
-            gripper.clean()
-            if success_cnt > 0:
-                design_cnt += 1
-                if success_cnt > best_success_cnt:
-                    best_success_cnt = success_cnt
-                    max_height = cur_max_height
+            for i, w in np.ndenumerate(ww):
+                if w > 20 * np.tan(min_ori_diff / 2) * 2 - 2 or not 15e-3 < end_height * rr[i] < 30e-3:
+                    continue
+                _, fingers = initialize_gripper(cps, end_pos, self._n_finger_joints,
+                                                expand_dist=end_height * 1000,
+                                                height_ratio=rr[i], width=w, finger_skeletons=skeletons)
+                gripper = FOAMGripper(fingers)
+                cur_max_height = 0.
+                success_cnt = 0
+                final_pos = multiple_gripper_sim(self._graspObj, self._graspObjUrdf, [gripper] * 20,
+                                                 end_height, p.DIRECT)
+                for pos in final_pos:
+                    if .5 * (.05 * 500 / 240) < pos[-1] - self._graspObj.cog[-1] < 1.2 * (.05 * 500 / 240):
+                        success_cnt += 1
+                        if pos[-1] > cur_max_height:
+                            cur_max_height = pos[-1]
+                gripper.clean()
+                if success_cnt > 0:
+                    design_cnt += 1
+                    if success_cnt > best_success_cnt:
+                        best_success_cnt = success_cnt
+                        max_height = cur_max_height
+                    elif success_cnt == best_success_cnt:
+                        max_height = cur_max_height
 
         if design_cnt == 0:
             return 0
 
-        return (2 * best_success_cnt / 20 + max_height / (self._graspObj.cog[-1] + .05 * 500 / 240)
-                + min_ori_diff / (2 * np.pi / len(ori)) - .5 * L_avg)
+        return 2 * best_success_cnt / 20 + max_height / (self._graspObj.cog[-1] + .05 * 500 / 240) - .5 * L_avg
 
     def create_individual(self):
         """create an individual randomly"""
@@ -283,63 +288,3 @@ class ContactPointsGA(object):
         """return members of the last generation"""
         return ((member.fitness, member.genes) for member in self._cur_generation)
 
-
-import os
-from mpl_toolkits import mplot3d
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-import time
-from itertools import combinations
-import pickle
-
-if __name__ == "__main__":
-    # test
-    # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.stl")
-    # test_obj = GraspingObj(friction=0.5)
-    # test_obj.read_from_stl(stl_file)
-    with open(os.path.join(os.path.abspath('..'), "assets/ycb/006_mustard_bottle/006_mustard_bottle.pickle"),
-              'rb') as f_test_obj:
-        test_obj = pickle.load(f_test_obj)
-    print(f'Faces: {test_obj.num_faces}')
-    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .02])
-    test_obj.compute_connectivity_from(end_effector_pos)
-
-    # tune
-    # crs = np.arange(0.3, 0.9, 0.1)
-    # fs = np.arange(0.4, 0.9, 0.1)
-    # CR, F = np.meshgrid(crs, fs)
-    # bests = np.zeros(CR.shape)
-    # cnt = 0
-    # for i in range(CR.shape[0]):
-    #     for j in range(CR.shape[1]):
-    #         ga = ContactPointsGA(test_obj, 4, cross_prob=CR[i][j], mutation_factor=F[i][j],
-    #                              population_size=30, generations=50, verbose=False)
-    #         ga.run(n_workers=8)
-    #         cnt += 1
-    #         print(cnt, ga.best_individual)
-    #         bests[i][j] = ga.best_individual[0]
-    #
-    # figure = plt.figure(dpi=300)
-    # ax = figure.add_axes(mplot3d.Axes3D(figure))
-    # ax.plot_surface(CR, F, bests, cmap='cool')
-    # ax.set_xlabel('Crossover Probability')
-    # ax.set_ylabel('Mutation Factor')
-    # ax.set_zlabel('Fitness')
-    # plt.show()
-
-    # single test
-    t1 = time.time()
-    ga = ContactPointsGA(test_obj, 3, end_effector_pos,
-                         cross_prob=.8, mutation_factor=.6, maximizeFitness=True,
-                         population_size=1000, generations=20, verbose=False, adaptive=False)
-    ga.run(n_workers=8)
-    t2 = time.time()
-    print(f"Elapsed time: {t2 - t1} seconds")
-    print(ga.best_individual)
-    ga.visualization()
-    bestCP = ContactPoints(test_obj, ga.best_individual[1])
-    bestCP.calc_force(verbose=True)
-    bestCP.visualisation(vector_ratio=.2)
-
-    for m in list(set(ga.last_generation)):
-        if m[0] > -2.:
-            print(m[1])

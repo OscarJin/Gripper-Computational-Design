@@ -383,7 +383,7 @@ def initialize_gripper(
         n_finger_joints: int,
         expand_dist=30.,
         root_length=30.,
-        height_ratio=1.5,
+        height_ratio=.5,
         width=20.,
         gap=2.,
         finger_skeletons=None,
@@ -392,7 +392,7 @@ def initialize_gripper(
         finger_skeletons = initialize_fingers(cps, effector_pos, n_finger_joints, expand_dist / 1000, root_length / 1000)
     L, angle, ori = compute_skeleton(finger_skeletons, cps, effector_pos, n_finger_joints)
     angle *= .95
-    unit_h = expand_dist / height_ratio
+    unit_h = expand_dist * height_ratio
     fingers: List[Finger] = []
 
     for i, f in enumerate(finger_skeletons):
