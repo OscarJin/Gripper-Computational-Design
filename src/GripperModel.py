@@ -63,7 +63,7 @@ class Unit:
                 self.mesh.vectors[i][j] = self.vertices[f[j], :]
 
         self.id = _create_id()
-        self.filename = os.path.join(os.path.abspath('..'), "assets/unit_" + self.id + ".stl")
+        self.filename = os.path.join(os.path.abspath('..'), "_cache_/unit_" + self.id + ".stl")
         self.mesh.save(self.filename, mode=stl.Mode.BINARY)
 
     @property
@@ -84,7 +84,7 @@ class Finger:
         self.units = units
         self.orientation = orientation
         self.id = _create_id()
-        self.filename = os.path.join(os.path.abspath('..'), "assets/finger_" + self.id + ".urdf")
+        self.filename = os.path.join(os.path.abspath('..'), "_cache_/finger_" + self.id + ".urdf")
         self._create_urdf()
 
     def _create_urdf(self):
@@ -227,7 +227,7 @@ class Finger:
         finger_mesh = trimesh.boolean.difference([finger_mesh, trench_mesh])
 
         if export:
-            stl_file = os.path.join(os.path.abspath('..'), "assets/finger_" + self.id + ".stl")
+            stl_file = os.path.join(os.path.abspath('..'), "results/finger_" + self.id + ".stl")
             finger_mesh.export(stl_file)
 
         return finger_mesh

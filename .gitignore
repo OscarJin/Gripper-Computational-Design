@@ -4,8 +4,8 @@ gripper_*.stl
 unit_*.stl
 finger_*.stl
 finger_*.urdf
-results.txt
-debug.txt
+results
+_cache_
 
 ### VisualStudioCode template
 .vscode/*

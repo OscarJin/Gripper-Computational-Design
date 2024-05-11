@@ -6,8 +6,8 @@ from scipy.optimize import minimize
 
 def compute_angle(point_1, point_2, point_3):
     """point_1 is the middle point"""
-    return np.arccos(np.dot(point_2 - point_1, point_3 - point_1) / (
-            np.linalg.norm(point_2 - point_1) * np.linalg.norm(point_3 - point_1)))
+    return np.arccos(np.clip(np.dot(point_2 - point_1, point_3 - point_1) / (
+            np.linalg.norm(point_2 - point_1) * np.linalg.norm(point_3 - point_1)), -1, 1))
 
 
 def should_pop(a, c, obj: GraspingObj) -> bool:
@@ -271,23 +271,15 @@ if __name__ == "__main__":
     # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.stl")
     # test_obj = GraspingObj(friction=0.5)
     # test_obj.read_from_stl(stl_file)
-    with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
+    with open(os.path.join(os.path.abspath('..'), "assets/ycb/011_banana/011_banana.pickle"),
               'rb') as f_test_obj:
         test_obj: GraspingObj = pickle.load(f_test_obj)
-    cps = ContactPoints(test_obj, [0, 544, 1601, 2763])
-    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight])
-    heights = np.arange(4, test_obj.height * 100, 1) / 100
-    for h in heights:
-        pos = end_effector_pos.copy()
-        pos[-1] += h
-        test_obj.compute_connectivity_from(pos)
-    # with open(os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.pickle"),
-    #           'wb') as f_test_obj:
-    #     pickle.dump(test_obj, f_test_obj)
+    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height, [577, 1113, 1478, 2338]).tolist())
+    end_effector_pos = test_obj.effector_pos[2]
 
-    end_effector_pos = np.asarray([test_obj.cog[0], test_obj.cog[1], test_obj.maxHeight + .04])
     n_finger_joints = 8
-    skeletons = initialize_fingers(cps, end_effector_pos, n_finger_joints, root_length=.04)
+    height = end_effector_pos[-1] - test_obj.maxHeight
+    skeletons = initialize_fingers(cps, end_effector_pos, 8, root_length=.04, expand_dist=height)
     Ls, angles, oris = compute_skeleton(skeletons, cps, end_effector_pos, n_finger_joints)
     print(Ls, np.rad2deg(angles), np.rad2deg(oris))
 
