@@ -264,23 +264,24 @@ from GripperInitialization import initialize_fingers
 from time import perf_counter
 
 if __name__ == "__main__":
-    ycb_model = '011_banana'
+    ycb_model = '013_apple'
     with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
               'rb') as f_test_obj:
         test_obj: GraspingObj = pickle.load(f_test_obj)
 
     test_obj_urdf = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}.urdf")
-    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height, [659, 1113, 1521, 2354]).tolist())
-    end_effector_pos = test_obj.effector_pos[1]
+    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height, [482, 964, 1436, 1592]).tolist())
+    end_effector_pos = test_obj.effector_pos[2]
     widths = np.linspace(15., 25., 5)
-    height_ratio = np.linspace(0.4, 0.7, 4)
-    # print(end_effector_pos)
+    _min_height_ratio = int(25e-2 / (test_obj.effector_pos[-1][-1] - test_obj.maxHeight)) / 10
+    height_ratio = np.arange(_min_height_ratio, .7, .1)
+    # height_ratio = np.linspace(0.4, 0.7, 4)
 
     t1 = perf_counter()
     end_height = end_effector_pos[-1] - test_obj.maxHeight
     skeleton = initialize_fingers(cps, end_effector_pos, 8, root_length=.04, expand_dist=end_height)
     _, fingers = initialize_gripper(cps, end_effector_pos, 8, expand_dist=end_height * 1000,
-                                    height_ratio=height_ratio[0], width=widths[2], gap=2, finger_skeletons=skeleton)
+                                    height_ratio=height_ratio[1], width=widths[3], gap=2, finger_skeletons=skeleton)
     gripper = FOAMGripper(fingers)
     t2 = perf_counter()
     print(t2 - t1)

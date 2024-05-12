@@ -449,13 +449,13 @@ if __name__ == "__main__":
     """
         prepare the grasping object here
     """
-    ycb_model = '011_banana'
+    ycb_model = '021_bleach_cleanser'
     stl_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.stl")
     data_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle")
     test_obj = GraspingObj(friction=0.5)
-    test_obj.preprocess(stl_path=stl_file, data_path=data_file, end_effector_max_height=2)
+    test_obj.preprocess(stl_path=stl_file, data_path=data_file, end_effector_max_height=.4)
 
-    # with open(os.path.join(os.path.abspath('..'), "assets/ycb/011_banana/011_banana.pickle"),
+    # with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
     #           'rb') as f_test_obj:
     #     test_obj: GraspingObj = pickle.load(f_test_obj)
     # cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height, [1121, 1357]).tolist())

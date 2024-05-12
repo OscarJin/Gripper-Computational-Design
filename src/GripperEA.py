@@ -248,7 +248,8 @@ class SingleObjectGripperDE(DifferentialEvolution):
         self._numContact = numContact
         self._n_finger_joints = n_finger_joints
         self.widths = np.linspace(15., 25., 5)
-        self.height_ratio = np.linspace(0.4, 0.7, 4)
+        _min_height_ratio = int(25e-2 / (self._graspObj.effector_pos[-1][-1] - self._graspObj.maxHeight)) / 10
+        self.height_ratio = np.arange(_min_height_ratio, .7, .1)
         _lower_bound = [0] * (self._numContact + 3)
         _upper_bound = ([self._graspObj.num_middle_faces - 1] * self._numContact +
                         [len(self.widths) - 1, len(self.height_ratio) - 1, len(self._graspObj.effector_pos) - 1])
@@ -273,9 +274,9 @@ class SingleObjectGripperDE(DifferentialEvolution):
                     height_ratio = self.height_ratio[i]
                     gene[-2] = i
                     break
-        elif end_height * height_ratio > 30e-3:
+        elif end_height * height_ratio > 25e-3:
             for i in range(gene[-2])[::-1]:
-                if end_height * self.height_ratio[i] < 30e-3:
+                if end_height * self.height_ratio[i] < 25e-3:
                     height_ratio = self.height_ratio[i]
                     gene[-2] = i
                     break
