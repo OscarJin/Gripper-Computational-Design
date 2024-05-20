@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import stl
 from scipy.linalg import null_space
 import math
 from stl import mesh
@@ -28,11 +29,18 @@ class GraspingObj(object):
         self._volume = None
         self.cog = None
         self.mu = friction
+        # bounding box
         self.minHeight = 0.
         self.maxHeight = 0.
         self.height = 0.
+        self.x_min = 0.
+        self.x_max = 0.
+        self.x_span = 0.
+        self.y_min = 0.
+        self.y_max = 0.
+        self.y_span = 0.
         # clamp height remap
-        self.faces_mapping_clamp_height: List[int] = []
+        self.faces_mapping_clamp_height_and_radius: List[int] = []
         # for compute connectivity
         self.dist = {}
         self.parent = {}
@@ -63,6 +71,12 @@ class GraspingObj(object):
         self.maxHeight = np.max(self.faces[:, :, 2])
         self.minHeight = np.min(self.faces[:, :, 2])
         self.height = self.maxHeight - self.minHeight
+        self.x_max = np.max(self.faces[:, :, 0])
+        self.x_min = np.min(self.faces[:, :, 0])
+        self.x_span = self.x_max - self.x_min
+        self.y_max = np.max(self.faces[:, :, 1])
+        self.y_min = np.min(self.faces[:, :, 1])
+        self.y_span = self.y_max - self.y_min
 
     def _calc_center_of_mass(self):
         volume = 0.
@@ -109,16 +123,17 @@ class GraspingObj(object):
 
         return max(dists)
 
-    def clamp_height(self, lower_bound=.2, upper_bound=.9):
-        self.faces_mapping_clamp_height.clear()
+    def clamp_height_and_radius(self, lower_bound=.2, upper_bound=.9, radius=np.inf):
+        self.faces_mapping_clamp_height_and_radius.clear()
         centers = np.asarray([np.average(f, axis=0) for f in self.faces])
         for i, c in enumerate(centers):
-            if lower_bound * self.height < c[-1] - self.minHeight < upper_bound * self.height:
-                self.faces_mapping_clamp_height.append(i)
+            if (lower_bound * self.height < c[-1] - self.minHeight < upper_bound * self.height
+                    and np.linalg.norm(c[:-1] - self.cog[:-1]) < radius):
+                self.faces_mapping_clamp_height_and_radius.append(i)
 
     @property
     def num_middle_faces(self):
-        return len(self.faces_mapping_clamp_height)
+        return len(self.faces_mapping_clamp_height_and_radius)
 
     def _segment_triangle_intersection(self, origin, direction, face_id) -> bool:
         A = self.faces[face_id][0]
@@ -256,13 +271,16 @@ class GraspingObj(object):
                    end_effector_max_height: float = 1,
                    ):
         self.read_from_stl(stl_path)
-        self.clamp_height(height_lower_bound, height_upper_bound)
+        xy_ratio = self.x_span / self.y_span if self.x_span > self.y_span else self.y_span / self.x_span
+        r = (self.x_span + self.y_span) / 4 if xy_ratio > 1.5 else np.inf
+        self.clamp_height_and_radius(height_lower_bound, height_upper_bound, r)
+        print(f'Regions of interest: {len(self.faces_mapping_clamp_height_and_radius)}')
         _end_effector_pos = np.asarray([self.cog[0], self.cog[1], self.maxHeight + .04])
-        while _end_effector_pos[-1] < test_obj.maxHeight + end_effector_max_height * test_obj.height:
-            test_obj.compute_connectivity_from(_end_effector_pos)
+        while _end_effector_pos[-1] < self.maxHeight + end_effector_max_height * self.height:
+            self.compute_connectivity_from(_end_effector_pos)
             _end_effector_pos[-1] += end_effector_height_step
         with open(data_path, 'wb') as _obj_data:
-            pickle.dump(test_obj, _obj_data)
+            pickle.dump(self, _obj_data)
 
 
 class ContactPoints(object):
@@ -272,7 +290,15 @@ class ContactPoints(object):
         self.nContact = len(fid)
         self.position = np.asarray([np.average(obj.faces[f], axis=0) for f in fid])
         self.normals = -np.asarray([obj.normals[f] / np.linalg.norm(obj.normals[f]) for f in fid])  # inner
-        self.f = np.transpose(np.asarray([[0, 0, 1., 0, 0, 0]]))
+
+        self._full_fid = []
+        for f in self._fid:
+            for j in range(3):
+                self._full_fid += list(np.where(self._obj.vertex2face == self._obj.vertex2face[f][j])[0])
+        self._full_fid = list(set(self._full_fid))
+        self._position_full = np.asarray([np.average(obj.faces[f], axis=0) for f in self._full_fid])
+        self._normals_full = -np.asarray([obj.normals[f] / np.linalg.norm(obj.normals[f]) for f in self._full_fid])  # inner
+        self.f = np.transpose(np.asarray([[0, 0, 9.8, 0, 0, 0]]))
         self.W = self._create_grasp_matrix()
         self.Omega = self.W @ self.W.T
         self.N = null_space(self.W)
@@ -283,24 +309,24 @@ class ContactPoints(object):
         self.F = self.calc_force()
 
     def _create_grasp_matrix(self):
-        W = np.zeros([6, 9 * self.nContact])
-        for i, f in enumerate(self._fid):
-            for _j in range(3):
-                xi, yi, zi = self._obj.faces[f][_j]
-                W[:, 3 * (i + _j): 3 * (i + _j + 1)] = np.asarray([[1, 0, 0],
-                                                       [0, 1, 0],
-                                                       [0, 0, 1],
-                                                       [0, -zi, yi],
-                                                       [zi, 0, -xi],
-                                                       [-yi, xi, 0]])
-        # for i in range(self.nContact):
-        #     xi, yi, zi = self.position[i]
-        #     W[:, 3 * i: 3 * (i + 1)] = np.asarray([[1, 0, 0],
-        #                                            [0, 1, 0],
-        #                                            [0, 0, 1],
-        #                                            [0, -zi, yi],
-        #                                            [zi, 0, -xi],
-        #                                            [-yi, xi, 0]])
+        W = np.zeros([6, 3 * len(self._full_fid)])
+        # for i, f in enumerate(self._fid):
+        #     for _j in range(3):
+        #         xi, yi, zi = self._obj.faces[f][_j]
+        #         W[:, 3 * (i + _j): 3 * (i + _j + 1)] = np.asarray([[1, 0, 0],
+        #                                                [0, 1, 0],
+        #                                                [0, 0, 1],
+        #                                                [0, -zi, yi],
+        #                                                [zi, 0, -xi],
+        #                                                [-yi, xi, 0]])
+        for i in range(len(self._full_fid)):
+            xi, yi, zi = self._position_full[i]
+            W[:, 3 * i: 3 * (i + 1)] = np.asarray([[1, 0, 0],
+                                                   [0, 1, 0],
+                                                   [0, 0, 1],
+                                                   [0, -zi, yi],
+                                                   [zi, 0, -xi],
+                                                   [-yi, xi, 0]])
         return W
 
     def calc_force(self, verbose=False):
@@ -310,12 +336,14 @@ class ContactPoints(object):
         F = self._FE + self.N @ lambdas
 
         constraints = []
-        for i in range(self.nContact):
+        for i in range(len(self._full_fid)):
             Fi = F[i * 3: (i + 1) * 3]
-            mu_i = self._obj.mu if np.dot(self.normals[i], self.f[:3]) > 0 else 0.
+            # _normal = self._obj.compute_vertex_normal(self._obj.vertex2face[i // 3][i % 3])
+            _normal = self._normals_full[i]
+            mu_i = self._obj.mu if np.dot(_normal, self.f[:3]) > 0 else 0.
             eta_i = 1.0 + math.pow(mu_i, 2)
-            gi = cp.norm(Fi) - cp.sqrt(eta_i) * (Fi.T @ self.normals[i])
-            hi = -Fi.T @ self.normals[i]
+            gi = cp.norm(Fi) - cp.sqrt(eta_i) * (Fi.T @ _normal)
+            hi = -Fi.T @ _normal
             constraints += [gi <= 0]
             constraints += [hi <= 0]
 
@@ -331,7 +359,7 @@ class ContactPoints(object):
         if F.value is None:
             return None
 
-        return np.reshape(F.value, (self.nContact * 3, 3))
+        return np.reshape(F.value, (len(self._full_fid), 3))
 
     def visualization(self, vector_ratio=1.):
         figure = plt.figure(dpi=300)
@@ -339,14 +367,15 @@ class ContactPoints(object):
         ax.add_collection3d(Poly3DCollection(self._obj.faces, alpha=.3, facecolors="lightgrey"))
         scale = self._obj._mesh.points.flatten()
         ax.auto_scale_xyz(scale, scale, scale)
-        x = [p[0] for p in self.position]
-        y = [p[1] for p in self.position]
-        z = [p[2] for p in self.position]
+        x = [p[0] for p in self._position_full]
+        y = [p[1] for p in self._position_full]
+        z = [p[2] for p in self._position_full]
         ax.scatter3D(x, y, z, marker="v", c='r')
         ax.add_collection3d(Poly3DCollection(self._obj.faces[self._fid], facecolors="r"))
         if self.F is not None:
-            for i in range(self.nContact):
-                Fx, Fy, Fz = list(map(lambda j: np.linalg.norm(self.F[i * 3: (i + 1) * 3][j]), range(3)))
+            for i in range(len(self._full_fid)):
+                # Fx, Fy, Fz = list(map(lambda j: np.linalg.norm(self.F[i * 3: (i + 1) * 3][j]), range(3)))
+                Fx, Fy, Fz = list(map(lambda j: self.F[i][j], range(3)))
                 ax.quiver(x[i], y[i], z[i],
                           Fx * vector_ratio,
                           Fy * vector_ratio,
@@ -449,15 +478,16 @@ if __name__ == "__main__":
     """
         prepare the grasping object here
     """
-    ycb_model = '021_bleach_cleanser'
-    stl_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.stl")
-    data_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle")
-    test_obj = GraspingObj(friction=0.5)
-    test_obj.preprocess(stl_path=stl_file, data_path=data_file, end_effector_max_height=.4)
+    # ycb_model = '012_strawberry'
+    # stl_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.stl")
+    # data_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle")
+    # test_obj = GraspingObj(friction=0.5)
+    # test_obj.preprocess(stl_path=stl_file, data_path=data_file, end_effector_max_height=2)
 
-    # with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
-    #           'rb') as f_test_obj:
-    #     test_obj: GraspingObj = pickle.load(f_test_obj)
-    # cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height, [1121, 1357]).tolist())
-    # cps.calc_force(verbose=True)
-    # cps.visualization(vector_ratio=.01)
+    ycb_model = '012_strawberry'
+    with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
+              'rb') as f_test_obj:
+        test_obj: GraspingObj = pickle.load(f_test_obj)
+    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [783, 1659, 319, 1519]).tolist())
+    cps.calc_force(verbose=True)
+    cps.visualization(vector_ratio=.01)

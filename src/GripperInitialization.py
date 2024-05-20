@@ -37,10 +37,11 @@ def point_to_line_dist(a, b, p):
 
 def optimize_triangle(bc, lower_a, upper_a, lower_b, upper_b, lower_c, upper_c):
     def objective(x):
-        ab = bc * np.sin(x[2]) / np.sin(x[0])
-        ac = bc * np.sin(x[1]) / np.sin(x[0])
-        # return ab + ac
-        return np.abs(ab - ac)
+        # ab = bc * np.sin(x[2]) / np.sin(x[0])
+        # ac = bc * np.sin(x[1]) / np.sin(x[0])
+        # # return ab + ac
+        # return np.abs(ab - ac)
+        return x[0]
 
     def ineq_constraints(x):
         ab = bc * np.sin(x[2]) / np.sin(x[0])
@@ -98,30 +99,32 @@ def initialize_finger_skeleton(
         else:
             offset_dist = min(cur_expand_dist, (effector_pos[-1] - finger[j][-1]) / (1 + VN[-1]))
         finger[j] += VN * offset_dist
-        cur_expand_dist += (.5 * expand_dist / len(finger))
+        # cur_expand_dist += (.5 * expand_dist / len(finger))
+
+    # offset contact point
+    short_edge = 2e-2
+    n_cp = obj.normals[fid] / np.linalg.norm(obj.normals[fid])
+    finger[0] -= grasp_force * n_cp
+    offset_dist = min(short_edge, expand_dist, (finger[0][-1] - obj.minHeight) / (1 + max(-n_cp[-1], 1e-6)))
+    finger = np.insert(finger, 1, finger[0] + offset_dist * n_cp, axis=0)
 
     # offset effector (ind: -1)
-    n_finger = np.cross(finger[-1] - finger[-2], finger[-3] - finger[-2])
-    n_finger /= np.linalg.norm(n_finger)
     oa = finger[0][:-1] - finger[-1][:-1]
     oa /= np.linalg.norm(oa)
     finger[-1][:-1] += oa * root_length
     finger = np.concatenate((finger, effector_pos.reshape((1, 3))), axis=0)
-    # if len(finger) > 3 and np.dot(n_finger, np.cross(finger[-2] - finger[-3], finger[-4] - finger[-3])) < 0:
-    #     finger = np.delete(finger, -3, axis=0)
 
-    # offset contact point
-    n_cp = obj.normals[fid] / np.linalg.norm(obj.normals[fid])
-    finger[0] -= grasp_force * n_cp
-    offset_dist = min(expand_dist, (finger[0][-1] - obj.minHeight) / (1 + max(-n_cp[-1], 1e-6)))
-    finger = np.insert(finger, 1, finger[0] + offset_dist * n_cp, axis=0)
-    # if len(finger) > 4 and np.dot(n_finger, np.cross(finger[3] - finger[2], finger[1] - finger[2])) < 0:
-    #     finger = np.delete(finger, 2, axis=0)
+    # co-plane
+    for f in finger:
+        op = f[:-1] - finger[0][:-1]
+        proj = np.dot(op, oa) * oa
+        f[:-1] = finger[0][:-1] + proj
+    n_finger = np.cross(finger[-1] - finger[-2], finger[-3] - finger[-2])
+    n_finger /= np.linalg.norm(n_finger)
 
     # fix number of segment
     exist_minus_angle = True
     exist_short = True
-    short_edge = 3e-2
     while len(finger) > n_finger_joints or exist_minus_angle or exist_short:
         best_id = -1
         best_fall_back_id = -1
@@ -155,28 +158,28 @@ def initialize_finger_skeleton(
         finger = np.delete(finger, best_id, axis=0)
 
     # optimize end small angle
-    end_angle = compute_angle(finger[1], finger[0], finger[2])
-    if end_angle < np.deg2rad(120):
-        angle_2 = compute_angle(finger[2], finger[1], finger[3])
-        bc = np.linalg.norm(finger[2] - finger[1])
-        res = optimize_triangle(bc,
-                                np.deg2rad(120), np.pi - 1e-3,
-                                1e-3, np.pi - angle_2,
-                                np.deg2rad(120) - end_angle, np.pi - end_angle
-                                )
-        ba = bc * np.sin(res.x[2]) / np.sin(res.x[0])
-        angle_ba_horizontal = np.arccos(
-            np.dot((finger[1] - finger[2])[:-1], oa) / np.linalg.norm(finger[1] - finger[2])) - res.x[1]
-        new_point = finger[2] + np.asarray([ba * np.cos(angle_ba_horizontal) * oa[0],
-                                            ba * np.cos(angle_ba_horizontal) * oa[1],
-                                            -ba * np.sin(angle_ba_horizontal)])
-        finger = np.insert(finger, 2, new_point, axis=0)
+    # end_angle = compute_angle(finger[1], finger[0], finger[2])
+    # if end_angle < np.deg2rad(120):
+    #     angle_2 = compute_angle(finger[2], finger[1], finger[3])
+    #     bc = np.linalg.norm(finger[2] - finger[1])
+    #     res = optimize_triangle(bc,
+    #                             np.deg2rad(120), np.pi - 1e-3,
+    #                             1e-3, np.pi - angle_2,
+    #                             np.deg2rad(120) - end_angle, np.pi - end_angle
+    #                             )
+    #     ba = bc * np.sin(res.x[2]) / np.sin(res.x[0])
+    #     angle_ba_horizontal = np.arccos(
+    #         np.dot((finger[1] - finger[2])[:-1], oa) / np.linalg.norm(finger[1] - finger[2])) - res.x[1]
+    #     new_point = finger[2] + np.asarray([ba * np.cos(angle_ba_horizontal) * oa[0],
+    #                                         ba * np.cos(angle_ba_horizontal) * oa[1],
+    #                                         -ba * np.sin(angle_ba_horizontal)])
+    #     finger = np.insert(finger, 2, new_point, axis=0)
 
-    angle_low = 130
+    angle_low = 120
     while len(finger) < n_finger_joints + 1:
         exist_small_angle = False
         point_1 = 0
-        for j in range(2, len(finger) - 1):
+        for j in range(1, len(finger) - 1)[::-1]:
             par_link = finger[j + 1] - finger[j]
             child_link = finger[j - 1] - finger[j]
             angle = compute_angle(finger[j], finger[j - 1], finger[j + 1])
@@ -190,8 +193,10 @@ def initialize_finger_skeleton(
         if exist_small_angle:
             par_link = finger[point_1 + 1] - finger[point_1]
             child_link = finger[point_1 - 1] - finger[point_1]
-            if j == len(finger) - 2:
+            if point_1 == len(finger) - 2:
                 point_2 = point_1 - 1
+            elif point_1 == 1:
+                point_2 = point_1 + 1
             else:
                 point_2 = point_1 + 1 if np.linalg.norm(par_link) > np.linalg.norm(child_link) else point_1 - 1
             angle_1 = compute_angle(finger[point_1], finger[point_1 - 1], finger[point_1 + 1])
@@ -199,15 +204,15 @@ def initialize_finger_skeleton(
             bc = np.linalg.norm(finger[point_2] - finger[point_1])
             if point_2 < point_1:
                 res = optimize_triangle(bc,
-                                        np.deg2rad(angle_low), np.pi - 1e-3,
-                                        np.deg2rad(angle_low) - angle_1, np.pi - angle_1,
-                                        1e-3, np.pi - angle_2)
+                                        np.deg2rad(angle_low), np.deg2rad(175),
+                                        np.deg2rad(angle_low) - angle_1, np.deg2rad(175) - angle_1,
+                                        1e-3, np.deg2rad(175) - angle_2)
                 point_2, point_1 = point_1, point_2
             else:
                 res = optimize_triangle(bc,
-                                        np.deg2rad(angle_low), np.pi - 1e-3,
-                                        1e-3, np.pi - angle_2,
-                                        np.deg2rad(angle_low) - angle_1, np.pi - angle_1)
+                                        np.deg2rad(angle_low), np.deg2rad(175),
+                                        1e-3, np.deg2rad(175) - angle_2,
+                                        np.deg2rad(angle_low) - angle_1, np.deg2rad(175) - angle_1)
             if res.success:
                 ba = bc * np.sin(res.x[2]) / np.sin(res.x[0])
                 angle_ba_horizontal = np.arccos(
@@ -268,20 +273,18 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import pickle
 
 if __name__ == "__main__":
-    # stl_file = os.path.join(os.path.abspath('..'), "assets/ycb/013_apple/013_apple.stl")
-    # test_obj = GraspingObj(friction=0.5)
-    # test_obj.read_from_stl(stl_file)
-    with open(os.path.join(os.path.abspath('..'), "assets/ycb/011_banana/011_banana.pickle"),
+    ycb_model = '012_strawberry'
+    with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
               'rb') as f_test_obj:
         test_obj: GraspingObj = pickle.load(f_test_obj)
-    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height, [577, 1113, 1478, 2338]).tolist())
-    end_effector_pos = test_obj.effector_pos[2]
+    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [1167, 1682, 1834, 2058]).tolist())
+    end_effector_pos = test_obj.effector_pos[5]
 
     n_finger_joints = 8
     height = end_effector_pos[-1] - test_obj.maxHeight
     skeletons = initialize_fingers(cps, end_effector_pos, 8, root_length=.04, expand_dist=height)
     Ls, angles, oris = compute_skeleton(skeletons, cps, end_effector_pos, n_finger_joints)
-    print(Ls, np.rad2deg(angles), np.rad2deg(oris))
+    print(Ls, np.rad2deg(angles), np.rad2deg(np.round(oris * 8 / np.pi) * np.pi / 8), sep='\n')
 
     # visualization
     figure = plt.figure(dpi=300)

@@ -155,14 +155,15 @@ class DifferentialEvolution(ABC):
         self.create_new_population(n_workers=n_workers, parallel_type=parallel_type)
         self.rank_population()
         if self._verbose:
-            print("Best:", end=" ")
-            print(self.best_individual)
+            print(f"Best: {self.best_individual}")
 
-    def check_convergence(self, avg, std):
-        if avg > .95 and std < .05 * self.best_individual[0]:
-            return True
-        else:
+    def check_convergence(self):
+        if len(self._history_fitness) < 5:
             return False
+        for fit in self._history_fitness[-2:-6:-1]:
+            if not np.isclose(fit, self.best_individual[0]):
+                return False
+        return True
 
     def run(self, n_workers=None, parallel_type="processing"):
         """solve the GA"""
@@ -174,12 +175,15 @@ class DifferentialEvolution(ABC):
         self._history_fitness.append(self.best_individual[0])
         self._history_fitness_avg.append(avg)
         self._history_fitness_std.append(std)
+        if self._verbose:
+            print(f'Generation: 0 Best: {self.best_individual}')
 
         for g in (tqdm(range(1, self._generations), desc="Searching optimal grasp configuration") if not self._verbose
                   else range(1, self._generations)):
             if self._adaptive:
                 self._mutation_factor = (self._mutation_factor_0 *
                                          np.power(2, np.exp(1 - self._generations / (self._generations + 1 - g))))
+            self._mutation_factor = self._mutation_factor_0 * (2 if self.check_convergence() else 1)
             if self._verbose:
                 print(f'Generation: {g} Mutation: {self._mutation_factor}', end=" ")
             self.create_next_generation(n_workers=n_workers, parallel_type=parallel_type)
@@ -194,9 +198,9 @@ class DifferentialEvolution(ABC):
             if self._verbose:
                 print(f'avg: {avg}')
 
-            if self.check_convergence(avg, std):
-                self._generations_stop = g + 1
-                break
+            # if self.check_convergence(avg, std):
+            #     self._generations_stop = g + 1
+            #     break
 
     def visualization(self):
         # plot
@@ -247,7 +251,7 @@ class SingleObjectGripperDE(DifferentialEvolution):
         self._graspObjUrdf = grasping_obj_urdf
         self._numContact = numContact
         self._n_finger_joints = n_finger_joints
-        self.widths = np.linspace(15., 25., 5)
+        self.widths = np.linspace(12.5, 25., 6)
         _min_height_ratio = int(25e-2 / (self._graspObj.effector_pos[-1][-1] - self._graspObj.maxHeight)) / 10
         self.height_ratio = np.arange(_min_height_ratio, .7, .1)
         _lower_bound = [0] * (self._numContact + 3)
@@ -259,7 +263,7 @@ class SingleObjectGripperDE(DifferentialEvolution):
 
     def fitness(self, gene) -> float:
         cps = ContactPoints(obj=self._graspObj,
-                            fid=np.take(self._graspObj.faces_mapping_clamp_height, gene[0: self._numContact]).tolist())
+                            fid=np.take(self._graspObj.faces_mapping_clamp_height_and_radius, gene[0: self._numContact]).tolist())
         if cps.F is None:
             return 0
 

@@ -217,7 +217,7 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
             else:
                 pos = np.empty([f.n_unit - 1, 500], dtype=float)
                 for k in range(f.n_unit - 1):
-                    pos[k] = compute_finger_positions(f, k, float(areas_0[k]), initial_delta_area=5e-4)
+                    pos[k] = compute_finger_positions(f, k, float(areas_0[k]), initial_delta_area=4e-4)
                 joint_positions_memory[f.id] = pos
             joint_positions[f_id] = pos
 
@@ -264,15 +264,16 @@ from GripperInitialization import initialize_fingers
 from time import perf_counter
 
 if __name__ == "__main__":
-    ycb_model = '013_apple'
+    ycb_model = '012_strawberry'
     with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
               'rb') as f_test_obj:
         test_obj: GraspingObj = pickle.load(f_test_obj)
 
     test_obj_urdf = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}.urdf")
-    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height, [482, 964, 1436, 1592]).tolist())
-    end_effector_pos = test_obj.effector_pos[2]
-    widths = np.linspace(15., 25., 5)
+    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [328, 1691, 2022, 2058]).tolist())
+    end_effector_pos = test_obj.effector_pos[1]
+    # widths = np.linspace(15., 25., 5)
+    widths = np.linspace(12.5, 25., 6)
     _min_height_ratio = int(25e-2 / (test_obj.effector_pos[-1][-1] - test_obj.maxHeight)) / 10
     height_ratio = np.arange(_min_height_ratio, .7, .1)
     # height_ratio = np.linspace(0.4, 0.7, 4)
@@ -281,17 +282,16 @@ if __name__ == "__main__":
     end_height = end_effector_pos[-1] - test_obj.maxHeight
     skeleton = initialize_fingers(cps, end_effector_pos, 8, root_length=.04, expand_dist=end_height)
     _, fingers = initialize_gripper(cps, end_effector_pos, 8, expand_dist=end_height * 1000,
-                                    height_ratio=height_ratio[1], width=widths[3], gap=2, finger_skeletons=skeleton)
+                                    height_ratio=height_ratio[1], width=widths[4], gap=2, finger_skeletons=skeleton)
     gripper = FOAMGripper(fingers)
     t2 = perf_counter()
     print(t2 - t1)
-    # gripper_sim(test_obj, test_obj_urdf, gripper, p.GUI)
-    final_pos = multiple_gripper_sim(test_obj, test_obj_urdf, [gripper] * 16, end_height, max_deviation=.1, mode=p.DIRECT)
+    final_pos = multiple_gripper_sim(test_obj, test_obj_urdf, [gripper] * 16, end_height, max_deviation=.1, mode=p.GUI)
     for i, pos in enumerate(final_pos):
         if pos[-1] < test_obj.cog[-1] + .5 * (.05 * 500 / 240):
             print(i)
 
     # gripper.assemble(bottom_thick=1.5)
     # print((test_obj.height + (end_effector_pos[-1] - test_obj.maxHeight)) * 1000 + 30)
-    # gripper.fingers[2].assemble(bottom_thick=1.5)
+    # gripper.fingers[1].assemble(bottom_thick=1.5)
     gripper.clean()

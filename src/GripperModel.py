@@ -404,15 +404,15 @@ def initialize_gripper(
                 # root
                 r_angle = compute_unit_min_right_angle(L[i][j] - 30 - gap / 2., unit_h, np.pi / 2)
                 u = Unit(L[i][j] - 20 - gap / 2., unit_h, width, np.pi / 2,
-                         max(r_angle, angle[i][j] - np.deg2rad(85)), 20)
+                         np.clip(angle[i][j] - np.deg2rad(85), r_angle, angle[i][j] - np.deg2rad(10)), 20)
             elif j == n_finger_joints - 1:
                 # end
                 u = Unit(L[i][j] - gap / 2, unit_h, width, angle[i][j - 1] - units[-1].theta2, np.pi / 2, gap)
             else:
                 l_angle = angle[i][j - 1] - units[-1].theta2
                 r_angle = compute_unit_min_right_angle(L[i][j] - gap, unit_h, l_angle)
-                u = Unit(L[i][j] - gap, unit_h, width, angle[i][j - 1] - units[-1].theta2,
-                         max(r_angle, angle[i][j] - np.deg2rad(85)), gap)
+                u = Unit(L[i][j] - gap, unit_h, width, l_angle,
+                         np.clip(angle[i][j] - np.deg2rad(85), r_angle, angle[i][j] - np.deg2rad(10)), gap)
             units.append(u)
 
         fingers.append(Finger(units, orientation=round(ori[i] * 8 / np.pi) * np.pi / 8))
