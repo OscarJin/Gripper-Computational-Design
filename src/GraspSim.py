@@ -83,7 +83,7 @@ def compute_finger_positions(finger: Finger, joint: int, area_0: float, frames: 
     return joint_pos.reshape((1, frames))
 
 
-def gripper_sim(obj: GraspingObj, obj_urdf: str, gripper: FOAMGripper, mode: int = p.DIRECT):
+def _kinematic_verify(gripper: FOAMGripper, speed: float, frames: int, test_ind: int = 0, mode: int = p.DIRECT):
     # begin pybullet test
     physicsClient = p.connect(mode)
     p.setGravity(0, 0, -9.8, physicsClientId=physicsClient)
@@ -91,72 +91,39 @@ def gripper_sim(obj: GraspingObj, obj_urdf: str, gripper: FOAMGripper, mode: int
     p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=physicsClient)
     planeId = p.loadURDF("plane.urdf", physicsClientId=physicsClient)
 
-    # load grasping object
-    startPos = [0., 0., obj.cog[-1]]
-    startOrientation = p.getQuaternionFromEuler([0, 0, 0])
-    box_id = p.loadURDF(obj_urdf, startPos, startOrientation, physicsClientId=physicsClient,
-                        flags=p.URDF_USE_SELF_COLLISION | p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT)
-    p.changeDynamics(box_id, -1, mass=50e-3, lateralFriction=.5, physicsClientId=physicsClient)
-
     # load gripper
-    f_debug = open(os.path.join(os.path.abspath('..'), 'debug.txt'), 'w')
-    joint_positions = {}
-    finger_id = []
-    for f in gripper.fingers:
-        startPos = [0, 0, obj.height + .04]
-        # startPos = [0, 0, 1]
-        startOrientation = p.getQuaternionFromEuler([0, 0, f.orientation])
-        f_id = p.loadURDF(f.filename, startPos, startOrientation, useFixedBase=1, physicsClientId=physicsClient,
-                          flags=p.URDF_USE_SELF_COLLISION | p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT)
-        finger_id.append(f_id)
+    f_debug = open(os.path.join(os.path.abspath('..'), 'results', '-0', 'debug.txt'), 'w')
 
-        areas_0 = calc_area_0(f)
-        pos = np.empty([f.n_unit - 1, 500], dtype=float)
-        for i in range(f.n_unit - 1):
-            pos[i] = compute_finger_positions(f, i, float(areas_0[i]), initial_delta_area=3e-4)
-            f_debug.write(str(np.rad2deg(pos[i])) + '\n')
-        joint_positions[f_id] = pos
+    startPos = [0, 0, 1]
+    startOrientation = p.getQuaternionFromEuler([0, 0, gripper.fingers[test_ind].orientation])
+    finger_id = p.loadURDF(gripper.fingers[test_ind].filename, startPos, startOrientation, useFixedBase=1, physicsClientId=physicsClient,
+                           flags=p.URDF_USE_SELF_COLLISION | p.URDF_MAINTAIN_LINK_ORDER)
+    areas_0 = calc_area_0(gripper.fingers[test_ind])
+    pos = np.empty([gripper.fingers[test_ind].n_unit - 1, frames], dtype=float)
+    for i in range(gripper.fingers[test_ind].n_unit - 1):
+        pos[i] = compute_finger_positions(gripper.fingers[test_ind], i, float(areas_0[i]), frames=frames, initial_delta_area=speed)
+        # f_debug.write(str(np.rad2deg(pos[i])) + '\n')
 
     p.setRealTimeSimulation(0, physicsClientId=physicsClient)
 
-    for i in range(500):
-        for f in finger_id:
-            for j in range(p.getNumJoints(f, physicsClient)):
-                limit = p.getJointInfo(f, j, physicsClient)[9]
-                p.setJointMotorControl2(f, j, p.POSITION_CONTROL,
-                                        targetPosition=min(joint_positions[f][j][i], .95 * limit),
-                                        physicsClientId=physicsClient)
+    for _i in range(frames):
+        for j in range(p.getNumJoints(finger_id, physicsClient)):
+            limit = p.getJointInfo(finger_id, j, physicsClient)[9]
+            p.setJointMotorControl2(finger_id, j, p.POSITION_CONTROL,
+                                    targetPosition=min(pos[j][_i], .95 * limit),
+                                    physicsClientId=physicsClient)
         p.stepSimulation(physicsClientId=physicsClient)
-        # for j in range(p.getNumJoints(finger_id[0], physicsClient)):
-        #     pos = p.getJointState(finger_id[0], j, physicsClient)[0]
-        #     f_debug.write(str(np.rad2deg(pos))+'\t')
-        # f_debug.write('\n')
+        if _i % 8 == 0:
+            for j in range(p.getNumJoints(finger_id, physicsClient)):
+                cur_pos = p.getJointState(finger_id, j, physicsClient)[0]
+                # f_debug.write(str(np.rad2deg(cur_pos))+'\t')
+                f_debug.write(str(np.rad2deg(pos[j][_i])) + '\t')
+            f_debug.write('\n')
         if mode == p.GUI:
             sleep(1. / 240.)
-
-    for _ in range(500):
-        for f in finger_id:
-            for j in range(p.getNumJoints(f, physicsClient)):
-                limit = p.getJointInfo(f, j, physicsClient)[9]
-                p.setJointMotorControl2(f, j, p.POSITION_CONTROL,
-                                        targetPosition=min(joint_positions[f][j][-1], .95 * limit),
-                                        physicsClientId=physicsClient)
-            p.resetBaseVelocity(f, [0, 0, .05], physicsClientId=physicsClient)
-        p.stepSimulation(physicsClientId=physicsClient)
-        for j in range(p.getNumJoints(finger_id[0], physicsClient)):
-            pos = p.getJointState(finger_id[0], j, physicsClient)[0]
-            f_debug.write(str(np.rad2deg(pos))+'\t')
-        f_debug.write('\n')
-        if mode == p.GUI:
-            sleep(1. / 240.)
-
-    objPos, _ = p.getBasePositionAndOrientation(box_id, physicsClient)
 
     p.disconnect(physicsClientId=physicsClient)
-    # p.resetSimulation()
     # end pybullet test
-
-    return objPos
 
 
 def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGripper],
@@ -164,11 +131,14 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
     """
     Pybullet simulation of grasping with random x and y deviation
     :param height: distance from end effector to object top
-    :param max_deviation: max percentage of palm diameter (50 mm), default 10%
-    :return: final positions of objects
+    :param max_deviation: max percentage of palm radius (x_span + y_span) / 4, default 10%
+    :return: final positions of objects and a bool of collision between grippers and ground
     """
     # begin pybullet test
     physicsClient = p.connect(mode)
+    if mode == p.GUI:
+        p.resetDebugVisualizerCamera(cameraDistance=1, cameraYaw=-40, cameraPitch=-40, cameraTargetPosition=[0, 0, 0],
+                                     physicsClientId=physicsClient)
     p.setGravity(0, 0, -9.8, physicsClientId=physicsClient)
 
     p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=physicsClient)
@@ -195,10 +165,10 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
     finger_id = []
     joint_positions = {}
     joint_positions_memory = {}
-    palm_d = 50e-3
+    palm_r = (obj.x_span + obj.y_span) / 4
     for i, g in enumerate(grippers):
         for f in g.fingers:
-            deviation_r = random.uniform(0, max_deviation) * palm_d
+            deviation_r = random.uniform(0, max_deviation) * palm_r
             deviation_angle = random.uniform(0, 2 * np.pi)
             deviation_x = deviation_r * np.cos(deviation_angle)
             deviation_y = deviation_r * np.sin(deviation_angle)
@@ -208,7 +178,7 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
                 startPos[1] += deviation_y
             startOrientation = p.getQuaternionFromEuler([0, 0, f.orientation])
             f_id = p.loadURDF(f.filename, startPos, startOrientation, useFixedBase=1, physicsClientId=physicsClient,
-                              flags=p.URDF_USE_SELF_COLLISION | p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT | p.URDF_MAINTAIN_LINK_ORDER)
+                              flags=p.URDF_USE_SELF_COLLISION | p.URDF_MAINTAIN_LINK_ORDER)
             finger_id.append(f_id)
 
             areas_0 = calc_area_0(f)
@@ -223,14 +193,26 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
 
     p.setRealTimeSimulation(0, physicsClientId=physicsClient)
 
-    for i in range(500):
+    gripper_ground_collision = False
+    collision_start_frame = 0
+
+    for _i in range(500):
         for f in finger_id:
             for j in range(p.getNumJoints(f, physicsClient)):
                 limit = p.getJointInfo(f, j, physicsClient)[9]
                 p.setJointMotorControl2(f, j, p.POSITION_CONTROL,
-                                        targetPosition=min(joint_positions[f][j][i], .95 * limit),
+                                        targetPosition=min(joint_positions[f][j][_i], .95 * limit),
                                         physicsClientId=physicsClient)
         p.stepSimulation(physicsClientId=physicsClient)
+        if not gripper_ground_collision:
+            p.performCollisionDetection(physicsClientId=physicsClient)
+            for f in finger_id:
+                f_plane_cps = p.getContactPoints(bodyA=f, bodyB=planeId)
+                if len(f_plane_cps) != 0:
+                    gripper_ground_collision = True
+                    collision_start_frame = _i
+                    break
+
         if mode == p.GUI:
             sleep(1. / 240.)
 
@@ -254,7 +236,7 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
     p.disconnect(physicsClientId=physicsClient)
     # end pybullet test
 
-    return _final_pos
+    return _final_pos, (gripper_ground_collision, collision_start_frame)
 
 
 import pickle
@@ -264,34 +246,95 @@ from GripperInitialization import initialize_fingers
 from time import perf_counter
 
 if __name__ == "__main__":
-    ycb_model = '012_strawberry'
-    with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
-              'rb') as f_test_obj:
-        test_obj: GraspingObj = pickle.load(f_test_obj)
+    if True:
+        """single object grasping"""
+        ycb_model = '012_strawberry'
+        with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
+                  'rb') as f_test_obj:
+            test_obj: GraspingObj = pickle.load(f_test_obj)
 
-    test_obj_urdf = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}.urdf")
-    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [328, 1691, 2022, 2058]).tolist())
-    end_effector_pos = test_obj.effector_pos[1]
-    # widths = np.linspace(15., 25., 5)
-    widths = np.linspace(12.5, 25., 6)
-    _min_height_ratio = int(25e-2 / (test_obj.effector_pos[-1][-1] - test_obj.maxHeight)) / 10
-    height_ratio = np.arange(_min_height_ratio, .7, .1)
-    # height_ratio = np.linspace(0.4, 0.7, 4)
+        test_obj_urdf = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}.urdf")
+        cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [541, 819, 939, 1471]).tolist())
+        end_effector_pos = test_obj.effector_pos[1]
+        # widths = np.linspace(15., 25., 5)
+        widths = np.linspace(12.5, 25., 6)
+        _min_height_ratio = int(25e-2 / (test_obj.effector_pos[-1][-1] - test_obj.maxHeight)) / 10
+        height_ratio = np.arange(_min_height_ratio, .7, .1)
+        # height_ratio = np.linspace(0.4, 0.7, 4)
 
-    t1 = perf_counter()
-    end_height = end_effector_pos[-1] - test_obj.maxHeight
-    skeleton = initialize_fingers(cps, end_effector_pos, 8, root_length=.04, expand_dist=end_height)
-    _, fingers = initialize_gripper(cps, end_effector_pos, 8, expand_dist=end_height * 1000,
-                                    height_ratio=height_ratio[1], width=widths[4], gap=2, finger_skeletons=skeleton)
-    gripper = FOAMGripper(fingers)
-    t2 = perf_counter()
-    print(t2 - t1)
-    final_pos = multiple_gripper_sim(test_obj, test_obj_urdf, [gripper] * 16, end_height, max_deviation=.1, mode=p.GUI)
-    for i, pos in enumerate(final_pos):
-        if pos[-1] < test_obj.cog[-1] + .5 * (.05 * 500 / 240):
-            print(i)
+        t1 = perf_counter()
+        end_height = end_effector_pos[-1] - test_obj.maxHeight
+        skeleton = initialize_fingers(cps, end_effector_pos, 8, root_length=.04, expand_dist=end_height)
+        _, fingers = initialize_gripper(cps, end_effector_pos, 8, expand_dist=end_height * 1000,
+                                        height_ratio=height_ratio[2], width=widths[2], gap=2, finger_skeletons=skeleton)
+        gripper = FOAMGripper(fingers)
+        t2 = perf_counter()
+        print(t2 - t1)
+        if False:
+            """bullet sim"""
+            final_pos, collision = multiple_gripper_sim(test_obj, test_obj_urdf, [gripper] * 20, end_height, max_deviation=.1, mode=p.GUI)
+            t3 = perf_counter()
+            print(t3 - t2)
+            print(f"Collision: {collision}")
+            for i, pos in enumerate(final_pos):
+                if pos[-1] < test_obj.cog[-1] + .5 * (.05 * 500 / 240):
+                    print(i)
 
-    # gripper.assemble(bottom_thick=1.5)
-    # print((test_obj.height + (end_effector_pos[-1] - test_obj.maxHeight)) * 1000 + 30)
-    # gripper.fingers[1].assemble(bottom_thick=1.5)
-    gripper.clean()
+        if False:
+            _kinematic_verify(gripper, speed=6e-6, frames=240*100, test_ind=0, mode=p.DIRECT)
+
+        gripper.assemble(bottom_thick=1.5)
+        print((test_obj.height + (end_effector_pos[-1] - test_obj.maxHeight)) * 1000 + 30)
+        # gripper.fingers[1].assemble(bottom_thick=1.5)
+        gripper.clean()
+
+    if False:
+        """multi objects grasping"""
+        ycb_models = ['011_banana', '013_apple']
+        ref_ind = 0
+        max_height_ind = 1
+        grasp_ind = 0
+        results_dir = os.path.join(os.path.abspath('..'), 'results')
+        save_dir = os.path.join(results_dir, '-'.join(ycb_models) + "-5")
+        with open(os.path.join(save_dir, 'reference_object.pickle'), 'rb') as f_test_obj:
+            ref_obj: GraspingObj = pickle.load(f_test_obj)
+        with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_models[max_height_ind]}/{ycb_models[max_height_ind]}.pickle"),
+                  'rb') as f_test_obj:
+            max_height_obj: GraspingObj = pickle.load(f_test_obj)
+        # with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_models[grasp_ind]}/{ycb_models[grasp_ind]}.pickle"),
+        #           'rb') as f_test_obj:
+        #     test_obj: GraspingObj = pickle.load(f_test_obj)
+        ycb_model = '012_strawberry'
+        with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
+                  'rb') as f_test_obj:
+            test_obj: GraspingObj = pickle.load(f_test_obj)
+
+        test_obj_urdf = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}.urdf")
+        cps = ContactPoints(ref_obj,
+                            np.take(ref_obj.faces_mapping_clamp_height_and_radius, [0, 660, 1415, 1581]).tolist())
+        end_effector_pos = ref_obj.effector_pos[0]
+        widths = np.linspace(12.5, 25., 6)
+        _min_height_ratio = int(25e-2 / (max_height_obj.effector_pos[-1][-1] - max_height_obj.maxHeight)) / 10
+        height_ratio = np.arange(_min_height_ratio, .7, .1)
+
+        t1 = perf_counter()
+        end_height = end_effector_pos[-1] - max_height_obj.maxHeight
+        skeleton = initialize_fingers(cps, end_effector_pos, 8, root_length=.04, expand_dist=end_height)
+        _, fingers = initialize_gripper(cps, end_effector_pos, 8, expand_dist=end_height * 1000,
+                                        height_ratio=height_ratio[3], width=widths[4], gap=2, finger_skeletons=skeleton)
+        gripper = FOAMGripper(fingers)
+        t2 = perf_counter()
+        print(t2 - t1)
+
+        final_pos, collision = multiple_gripper_sim(test_obj, test_obj_urdf, [gripper] * 16,
+                                                    end_effector_pos[-1] - test_obj.maxHeight,
+                                                    max_deviation=.1, mode=p.GUI)
+        print(f"Collision: {collision}")
+        for i, pos in enumerate(final_pos):
+            if pos[-1] < test_obj.cog[-1] + .5 * (.05 * 500 / 240):
+                print(i)
+
+        # gripper.assemble(bottom_thick=1.5)
+        # print((test_obj.height + (end_effector_pos[-1] - test_obj.maxHeight)) * 1000 + 30)
+        # gripper.fingers[1].assemble(bottom_thick=1.5)
+        gripper.clean()

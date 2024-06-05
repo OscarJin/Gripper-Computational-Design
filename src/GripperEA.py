@@ -1,3 +1,4 @@
+import os
 import os.path as osp
 from GeometryUtils import GraspingObj, ContactPoints
 import random
@@ -9,10 +10,11 @@ from concurrent import futures
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from GripperInitialization import initialize_fingers, compute_skeleton
-from GripperModel import FOAMGripper, initialize_gripper
+from GripperModel import FOAMGripper, initialize_gripper, _create_id
 from GraspSim import multiple_gripper_sim
 import pybullet as p
 from abc import ABC, abstractmethod
+import pickle
 
 
 class Chromosome(object):
@@ -183,7 +185,7 @@ class DifferentialEvolution(ABC):
             if self._adaptive:
                 self._mutation_factor = (self._mutation_factor_0 *
                                          np.power(2, np.exp(1 - self._generations / (self._generations + 1 - g))))
-            self._mutation_factor = self._mutation_factor_0 * (2 if self.check_convergence() else 1)
+            self._mutation_factor = self._mutation_factor_0 * (2 if self.check_convergence() and self.best_individual[0] < 1 else 1)
             if self._verbose:
                 print(f'Generation: {g} Mutation: {self._mutation_factor}', end=" ")
             self.create_next_generation(n_workers=n_workers, parallel_type=parallel_type)
@@ -255,6 +257,8 @@ class SingleObjectGripperDE(DifferentialEvolution):
         _min_height_ratio = int(25e-2 / (self._graspObj.effector_pos[-1][-1] - self._graspObj.maxHeight)) / 10
         self.height_ratio = np.arange(_min_height_ratio, .7, .1)
         _lower_bound = [0] * (self._numContact + 3)
+        _lower_bound[-3] = 1
+        _lower_bound[-2] = 1
         _upper_bound = ([self._graspObj.num_middle_faces - 1] * self._numContact +
                         [len(self.widths) - 1, len(self.height_ratio) - 1, len(self._graspObj.effector_pos) - 1])
 
@@ -265,7 +269,7 @@ class SingleObjectGripperDE(DifferentialEvolution):
         cps = ContactPoints(obj=self._graspObj,
                             fid=np.take(self._graspObj.faces_mapping_clamp_height_and_radius, gene[0: self._numContact]).tolist())
         if cps.F is None:
-            return 0
+            return -1
 
         # pybullet sim
         width = self.widths[gene[-3]]
@@ -298,10 +302,10 @@ class SingleObjectGripperDE(DifferentialEvolution):
             diff = (ori_sort[0] + 2 * np.pi) - ori_sort[-1] if i == len(ori_sort) - 1 else ori_sort[i + 1] - ori
             min_ori_diff = min(min_ori_diff, diff)
         if min_ori_diff < np.deg2rad(45):
-            return 0
+            return -1
         if width > 20 * np.tan(min_ori_diff / 2) * 2 - 2:
             if gene[-3] == 0:
-                return 0
+                return -1
             for i in range(gene[-3])[::-1]:
                 if self.widths[i] < 20 * np.tan(min_ori_diff / 2) * 2 - 2:
                     width = self.widths[i]
@@ -314,18 +318,19 @@ class SingleObjectGripperDE(DifferentialEvolution):
                                         height_ratio=height_ratio, width=width, finger_skeletons=skeletons)
         gripper = FOAMGripper(fingers)
         success_cnt = 0
-        final_pos = multiple_gripper_sim(self._graspObj, self._graspObjUrdf, [gripper] * 20,
-                                         end_height, max_deviation=.1, mode=p.DIRECT)
+        final_pos, collision = multiple_gripper_sim(self._graspObj, self._graspObjUrdf, [gripper] * 20,
+                                                    end_height, max_deviation=.1, mode=p.DIRECT)
         for pos in final_pos:
             if .5 * (.05 * 500 / 240) < pos[-1] - self._graspObj.cog[-1] < 1.5 * (.05 * 500 / 240):
                 success_cnt += 1
                 if pos[-1] > max_height:
                     max_height = pos[-1]
         if success_cnt == 0:
-            return 0
+            return -1
 
-        # return 2 * success_cnt / 20 + max_height / (self._graspObj.cog[-1] + .05 * 500 / 240) - .5 * L_avg
-        return success_cnt / 20
+        return (success_cnt / 20
+                - .5 * (500 - collision[1]) * collision[0] / 500
+                + .25 * (gene[-3] / self._upper_bound[-3]))
 
     def create_individual(self):
         """create an individual randomly"""
@@ -373,7 +378,12 @@ class SingleObjectGripperDE(DifferentialEvolution):
 
     def visualization(self):
         # save numpy data
-        training_data_file = osp.join(osp.abspath('..'), f"results/training_data_{self._graspObj.short_name}.npz")
+        results_dir = osp.join(osp.abspath('..'), 'results')
+        last_train = max([eval(s.split("-")[-1]) for s in os.listdir(results_dir)] + [0])
+        cur_train = last_train + 1
+        save_dir = osp.join(results_dir, f"{self._graspObj.short_name}-{cur_train}")
+        os.makedirs(save_dir)
+        training_data_file = osp.join(save_dir, f"training_data.npz")
         np.savez(training_data_file, self._generations_stop, self._history_fitness,
                  self._history_fitness_avg, self._history_fitness_std)
         # plot
@@ -382,11 +392,10 @@ class SingleObjectGripperDE(DifferentialEvolution):
 
 class MultiObjectsGripperDE(DifferentialEvolution):
     """
-        Differential evolution algorithm for designing a gripper to grasp m objects.
+        Differential evolution algorithm for designing a gripper to grasp multiple objects.
 
-        A gene consists of m+n+3 integers. The first one is the index of the reference object,
-        the next n are contact points, the next two are width and height,
-        and last m are end effector heights for grasping each object.
+        A gene consists of n+3 integers. the first n are contact points, the last three are width and height,
+        and end effector height.
     """
     def __init__(self,
                  grasping_objects: List[GraspingObj],
@@ -404,17 +413,20 @@ class MultiObjectsGripperDE(DifferentialEvolution):
                  ):
         self._grasping_objects = grasping_objects
         self._grasping_objects_urdf = grasping_objects_urdf
+        self._max_height_ind: int = np.argmax(np.asarray([_obj.maxHeight for _obj in self._grasping_objects]))
+        self._min_height_ind: int = np.argmin(np.asarray([_obj.maxHeight for _obj in self._grasping_objects]))
+        self.recompute_connectivity()
+
         self._numContact = numContact
         self._n_finger_joints = n_finger_joints
-        self.widths = np.linspace(15., 25., 5)
-        self.height_ratio = np.linspace(0.4, 0.7, 4)
-        _lower_bound = [0] * (self.num_grasping_objects + self._numContact + 3)
-        _upper_bound = []
-        _end_effector_pos_upper_bound = [len(_obj.effector_pos) - 1 for _obj in self._grasping_objects]
-        for _obj in self._grasping_objects:
-            _obj_upper_bound = ([self.num_grasping_objects - 1] + [_obj.num_middle_faces - 1] * self._numContact +
-                                [len(self.widths) - 1, len(self.height_ratio) - 1] + _end_effector_pos_upper_bound)
-            _upper_bound.append(_obj_upper_bound)
+        self.widths = np.linspace(12.5, 25., 6)
+        _min_height_ratio = int(25e-2 / (self._grasping_objects[self._max_height_ind].effector_pos[-1][-1] -
+                                         self._grasping_objects[self._max_height_ind].maxHeight)) / 10
+        self.height_ratio = np.arange(_min_height_ratio, .7, .1)
+        _lower_bound = [0] * (self._numContact + 3)
+        _upper_bound = ([self._grasping_objects[self._min_height_ind].num_middle_faces - 1] * self._numContact +
+                        [len(self.widths) - 1, len(self.height_ratio) - 1,
+                         len(self._grasping_objects[self._min_height_ind].effector_pos) - 1])
 
         super().__init__(_lower_bound, _upper_bound, population_size, generations, cross_prob, mutation_factor,
                          adaptive, maximize_fitness, verbose, random_state)
@@ -422,3 +434,154 @@ class MultiObjectsGripperDE(DifferentialEvolution):
     @property
     def num_grasping_objects(self):
         return len(self._grasping_objects)
+
+    def recompute_connectivity(self):
+        # clear
+        self._grasping_objects[self._min_height_ind].effector_pos.clear()
+        self._grasping_objects[self._min_height_ind].parent.clear()
+        self._grasping_objects[self._min_height_ind].dist.clear()
+        # recompute
+        for _pos in self._grasping_objects[self._max_height_ind].effector_pos:
+            _end_pos = np.asarray([self._grasping_objects[self._min_height_ind].cog[0],
+                                   self._grasping_objects[self._min_height_ind].cog[1],
+                                   _pos[-1]])
+            self._grasping_objects[self._min_height_ind].compute_connectivity_from(_end_pos)
+
+    def fitness(self, gene) -> float:
+        min_fitness = -1
+        cps = ContactPoints(obj=self._grasping_objects[self._min_height_ind],
+                            fid=np.take(self._grasping_objects[self._min_height_ind].faces_mapping_clamp_height_and_radius,
+                                        gene[0: self._numContact]).tolist())
+        if cps.F is None:
+            return min_fitness
+
+        # pybullet sim
+        width = self.widths[gene[-3]]
+        height_ratio = self.height_ratio[gene[-2]]
+        end_effector_pos = self._grasping_objects[self._min_height_ind].effector_pos[gene[-1]]
+        end_height = end_effector_pos[-1] - self._grasping_objects[self._max_height_ind].maxHeight
+        if end_height * height_ratio < 15e-3:
+            for _i in range(gene[-2] + 1, self._upper_bound[-2] + 1):
+                if end_height * self.height_ratio[_i] > 15e-3:
+                    height_ratio = self.height_ratio[_i]
+                    gene[-2] = _i
+                    break
+        elif end_height * height_ratio > 25e-3:
+            for _i in range(gene[-2])[::-1]:
+                if end_height * self.height_ratio[_i] < 25e-3:
+                    height_ratio = self.height_ratio[_i]
+                    gene[-2] = _i
+                    break
+
+        skeletons = initialize_fingers(cps, end_effector_pos, self._n_finger_joints,
+                                       expand_dist=end_height, root_length=.04, grasp_force=1e-3)
+
+        _, _, ori = compute_skeleton(skeletons, cps, end_effector_pos, self._n_finger_joints)
+        # L_avg = np.average(np.nansum(L, axis=1))
+        # L_avg /= ((end_effector_pos[-1] - self._graspObj.minHeight) * 1000)  # normalize
+        ori_sort = np.sort(ori, kind='heapsort')
+        ori_sort = np.round(ori_sort * 8 / np.pi) * np.pi / 8
+        min_ori_diff = np.inf
+        for _i, ori in enumerate(ori_sort):
+            diff = (ori_sort[0] + 2 * np.pi) - ori_sort[-1] if _i == len(ori_sort) - 1 else ori_sort[_i + 1] - ori
+            min_ori_diff = min(min_ori_diff, diff)
+        if min_ori_diff < np.deg2rad(45):
+            return min_fitness
+        if width > 20 * np.tan(min_ori_diff / 2) * 2 - 2:
+            if gene[-3] == 0:
+                return min_fitness
+            for _i in range(gene[-3])[::-1]:
+                if self.widths[_i] < 20 * np.tan(min_ori_diff / 2) * 2 - 2:
+                    width = self.widths[_i]
+                    gene[-3] = _i
+                    break
+
+        max_height = 0.
+        _, fingers = initialize_gripper(cps, end_effector_pos, self._n_finger_joints,
+                                        expand_dist=end_height * 1000,
+                                        height_ratio=height_ratio, width=width, finger_skeletons=skeletons)
+        gripper = FOAMGripper(fingers)
+
+        total_success_rate = 1
+        total_collision = 0
+        for _i, _obj in enumerate(self._grasping_objects):
+            success_cnt = 0
+            final_pos, collision = multiple_gripper_sim(_obj, self._grasping_objects_urdf[_i], [gripper] * 20,
+                                                        end_effector_pos[-1] - _obj.maxHeight,
+                                                        max_deviation=.1, mode=p.DIRECT)
+            for pos in final_pos:
+                if .5 * (.05 * 500 / 240) < pos[-1] - _obj.cog[-1] < 1.5 * (.05 * 500 / 240):
+                    success_cnt += 1
+                    if pos[-1] > max_height:
+                        max_height = pos[-1]
+            if success_cnt == 0:
+                return min_fitness
+            total_success_rate *= (success_cnt / 20)
+            if collision[0]:
+                total_collision += collision[1]
+
+        if total_collision == 0:
+            return np.power(total_success_rate, 1 / self.num_grasping_objects)
+        else:
+            return (np.power(total_success_rate, 1 / self.num_grasping_objects) -
+                    .5 * ((500 - total_collision / self.num_grasping_objects) / 500))
+
+    def create_individual(self):
+        """create an individual randomly"""
+        contact_points = self._random.sample(range(0, self._grasping_objects[self._min_height_ind].num_middle_faces), self._numContact)
+        w = self._random.choice(range(len(self.widths)))
+        h = self._random.choice(range(len(self.height_ratio)))
+        pos = self._random.choice(range(len(self._grasping_objects[self._min_height_ind].effector_pos)))
+        gene = contact_points + [w, h, pos]
+        return gene
+
+    def create_new_individual(self, ind):
+        """create an individual using selection, mutation and crossover"""
+        base_i = self._random.sample([i for i in range(self._population_size) if i != ind], k=3)
+        x1, x2, x3 = self._cur_generation[base_i[0]].genes, self._cur_generation[base_i[1]].genes, \
+            self._cur_generation[base_i[2]].genes
+        x1, x2, x3 = np.asarray(x1), np.asarray(x2), np.asarray(x3)
+        mutant = x1 + self._mutation_factor * (x2 - x3)
+
+        # crossover
+        trial = np.round(np.where(np.random.rand(len(mutant)) <= self._cross_prob,
+                                  mutant, np.asarray(self._cur_generation[ind].genes))).astype(int)
+        j_rand = self._random.choice(range(len(mutant)))
+        trial[j_rand] = mutant[j_rand]  # ensure crossover
+        trial = np.clip(trial, self._lower_bound, self._upper_bound)
+        trial_2 = copy.deepcopy(trial[self._numContact:])
+        trial = trial[0: self._numContact]
+        trial = np.unique(trial)
+        if trial.shape[0] < self._numContact:
+            more_i = self._random.sample([i for i in range(self._grasping_objects[self._min_height_ind].num_middle_faces) if i not in trial],
+                                         k=self._numContact - trial.shape[0])
+            trial = np.concatenate((trial, more_i), axis=None)
+        trial = np.concatenate((trial, trial_2), axis=None)
+        trial = trial.tolist()
+
+        # selection
+        trial_fitness = self.fitness(trial)
+        if ((self._max_fitness and trial_fitness >= self._cur_generation[ind].fitness) |
+                (not self._max_fitness and trial_fitness <= self._cur_generation[ind].fitness)):
+            new_individual = Chromosome(trial)
+            new_individual.fitness = trial_fitness
+        else:
+            new_individual = copy.deepcopy(self._cur_generation[ind])
+
+        return new_individual
+
+    def visualization(self):
+        # save numpy data
+        results_dir = osp.join(osp.abspath('..'), 'results')
+        last_train = max([eval(s.split("-")[-1]) for s in os.listdir(results_dir)] + [0])
+        cur_train = last_train + 1
+        save_dir = osp.join(results_dir, '-'.join([_obj.short_name for _obj in self._grasping_objects]) + f"-{cur_train}")
+        os.makedirs(save_dir)
+        training_data_file = osp.join(save_dir, f"training_data.npz")
+        np.savez(training_data_file, self._generations_stop, self._history_fitness,
+                 self._history_fitness_avg, self._history_fitness_std)
+        # save GraspingObj
+        with open(osp.join(save_dir, 'reference_object.pickle'), 'wb') as _obj_data:
+            pickle.dump(self._grasping_objects[self._min_height_ind], _obj_data)
+        # plot
+        super().visualization()

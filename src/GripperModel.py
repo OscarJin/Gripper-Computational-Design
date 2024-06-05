@@ -114,8 +114,8 @@ class Finger:
 </inertial>
 """
             urdf.write(visual)
-            if i != 0:
-                collision = f"""
+            # if i != 0:
+            collision = f"""
 <collision>
     <origin xyz="{origin} 0 0" rpy="{np.pi} 0 0"/>
     <geometry>
@@ -123,7 +123,7 @@ class Finger:
     </geometry>
 </collision>
 """
-                urdf.write(collision)
+            urdf.write(collision)
 
             urdf.write("</link>\r\n")
             urdf.write("\r\n")

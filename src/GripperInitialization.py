@@ -273,12 +273,24 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import pickle
 
 if __name__ == "__main__":
-    ycb_model = '012_strawberry'
-    with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
-              'rb') as f_test_obj:
-        test_obj: GraspingObj = pickle.load(f_test_obj)
-    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [1167, 1682, 1834, 2058]).tolist())
-    end_effector_pos = test_obj.effector_pos[5]
+
+    if True:
+        """single object grasping"""
+        ycb_model = '012_strawberry'
+        with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
+                  'rb') as f_test_obj:
+            test_obj: GraspingObj = pickle.load(f_test_obj)
+
+    if False:
+        """multi objects grasping"""
+        ycb_models = ['011_banana', '013_apple']
+        results_dir = os.path.join(os.path.abspath('..'), 'results')
+        save_dir = os.path.join(results_dir, '-'.join(ycb_models) + "-5")
+        with open(os.path.join(save_dir, 'reference_object.pickle'), 'rb') as f_test_obj:
+            test_obj: GraspingObj = pickle.load(f_test_obj)
+
+    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [541, 819, 939, 1471]).tolist())
+    end_effector_pos = test_obj.effector_pos[1]
 
     n_finger_joints = 8
     height = end_effector_pos[-1] - test_obj.maxHeight
@@ -287,9 +299,19 @@ if __name__ == "__main__":
     print(Ls, np.rad2deg(angles), np.rad2deg(np.round(oris * 8 / np.pi) * np.pi / 8), sep='\n')
 
     # visualization
+    plt.rcParams["font.family"] = "serif"
+    plt.rcParams["font.serif"] = ["Times New Roman"] + plt.rcParams["font.serif"]
     figure = plt.figure(dpi=300)
-    ax = figure.add_axes(mplot3d.Axes3D(figure))
-    ax.add_collection3d(Poly3DCollection(test_obj.faces, alpha=.3, facecolors="lightgrey"))
+    ax = figure.add_axes(mplot3d.Axes3D(figure), aspect='equal')
+    ax.grid(None)
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('z')
+    ax.xaxis.set_pane_color((1, 1, 1, 1))
+    ax.yaxis.set_pane_color((1, 1, 1, 1))
+    ax.zaxis.set_pane_color((1, 1, 1, 1))
+    ax.tick_params(labelsize=8)
+    ax.add_collection3d(Poly3DCollection(test_obj.faces, alpha=.5, facecolors="lightgrey"))
     scale = test_obj._mesh.points.flatten()
     ax.auto_scale_xyz(scale, scale, scale)
     for i in range(cps.nContact):

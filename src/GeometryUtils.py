@@ -362,8 +362,18 @@ class ContactPoints(object):
         return np.reshape(F.value, (len(self._full_fid), 3))
 
     def visualization(self, vector_ratio=1.):
+        plt.rcParams["font.family"] = "serif"
+        plt.rcParams["font.serif"] = ["Times New Roman"] + plt.rcParams["font.serif"]
         figure = plt.figure(dpi=300)
-        ax = figure.add_axes(mplot3d.Axes3D(figure))
+        ax = figure.add_axes(mplot3d.Axes3D(figure), aspect='equal')
+        ax.grid(None)
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('z')
+        ax.xaxis.set_pane_color((1, 1, 1, 1))
+        ax.yaxis.set_pane_color((1, 1, 1, 1))
+        ax.zaxis.set_pane_color((1, 1, 1, 1))
+        ax.tick_params(labelsize=8)
         ax.add_collection3d(Poly3DCollection(self._obj.faces, alpha=.3, facecolors="lightgrey"))
         scale = self._obj._mesh.points.flatten()
         ax.auto_scale_xyz(scale, scale, scale)
@@ -380,7 +390,7 @@ class ContactPoints(object):
                           Fx * vector_ratio,
                           Fy * vector_ratio,
                           Fz * vector_ratio,
-                          arrow_length_ratio=0.2)
+                          arrow_length_ratio=0.2, linewidth=.8)
         plt.show()
 
     @property
@@ -473,21 +483,25 @@ class ContactPoints(object):
     def fid(self) -> List[int]:
         return self._fid
 
+from time import perf_counter
 
 if __name__ == "__main__":
     """
         prepare the grasping object here
     """
-    # ycb_model = '012_strawberry'
-    # stl_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.stl")
-    # data_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle")
-    # test_obj = GraspingObj(friction=0.5)
-    # test_obj.preprocess(stl_path=stl_file, data_path=data_file, end_effector_max_height=2)
+    ycb_model = '021_bleach_cleanser'
+    stl_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.stl")
+    data_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle")
+    test_obj = GraspingObj(friction=0.5)
+    t1 = perf_counter()
+    test_obj.preprocess(stl_path=stl_file, data_path=data_file, end_effector_max_height=.4)
+    t2 = perf_counter()
+    print(t2 - t1)
 
-    ycb_model = '012_strawberry'
-    with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
-              'rb') as f_test_obj:
-        test_obj: GraspingObj = pickle.load(f_test_obj)
-    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [783, 1659, 319, 1519]).tolist())
-    cps.calc_force(verbose=True)
-    cps.visualization(vector_ratio=.01)
+    # ycb_model = '011_banana'
+    # with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
+    #           'rb') as f_test_obj:
+    #     test_obj: GraspingObj = pickle.load(f_test_obj)
+    # cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [410, 542, 1205, 1861]).tolist())
+    # cps.calc_force(verbose=True)
+    # cps.visualization(vector_ratio=.04)
