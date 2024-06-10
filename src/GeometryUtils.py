@@ -267,12 +267,13 @@ class GraspingObj(object):
                    data_path: str,
                    height_lower_bound: float = .2,
                    height_upper_bound: float = .9,
+                   radius: float = None,
                    end_effector_height_step: float = .01,
                    end_effector_max_height: float = 1,
                    ):
         self.read_from_stl(stl_path)
         xy_ratio = self.x_span / self.y_span if self.x_span > self.y_span else self.y_span / self.x_span
-        r = (self.x_span + self.y_span) / 4 if xy_ratio > 1.5 else np.inf
+        r = ((self.x_span + self.y_span) / 4 if xy_ratio > 1.5 else np.inf) if radius is None else radius
         self.clamp_height_and_radius(height_lower_bound, height_upper_bound, r)
         print(f'Regions of interest: {len(self.faces_mapping_clamp_height_and_radius)}')
         _end_effector_pos = np.asarray([self.cog[0], self.cog[1], self.maxHeight + .04])
@@ -489,12 +490,12 @@ if __name__ == "__main__":
     """
         prepare the grasping object here
     """
-    ycb_model = '021_bleach_cleanser'
+    ycb_model = '001_tape'
     stl_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.stl")
     data_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle")
     test_obj = GraspingObj(friction=0.5)
     t1 = perf_counter()
-    test_obj.preprocess(stl_path=stl_file, data_path=data_file, end_effector_max_height=.4)
+    test_obj.preprocess(stl_path=stl_file, data_path=data_file, end_effector_max_height=4, radius=np.inf)
     t2 = perf_counter()
     print(t2 - t1)
 

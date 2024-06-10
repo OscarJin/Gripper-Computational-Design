@@ -6,7 +6,7 @@ from GeometryUtils import GraspingObj
 from time import perf_counter
 
 if __name__ == "__main__":
-    ycb_model = '012_strawberry'
+    ycb_model = '021_bleach_cleanser'
     with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
               'rb') as f_test_obj:
         test_obj: GraspingObj = pickle.load(f_test_obj)

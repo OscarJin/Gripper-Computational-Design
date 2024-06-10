@@ -127,7 +127,7 @@ def _kinematic_verify(gripper: FOAMGripper, speed: float, frames: int, test_ind:
 
 
 def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGripper],
-                         height: float, max_deviation=.1, mode: int = p.DIRECT):
+                         height: float, max_deviation=.1, obj_mass: float = 50e-3, mode: int = p.DIRECT):
     """
     Pybullet simulation of grasping with random x and y deviation
     :param height: distance from end effector to object top
@@ -158,7 +158,7 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
         startOrientation = p.getQuaternionFromEuler([0, 0, 0])
         box_id = p.loadURDF(obj_urdf, startPos, startOrientation, physicsClientId=physicsClient,
                             flags=p.URDF_USE_SELF_COLLISION | p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT)
-        p.changeDynamics(box_id, -1, mass=50e-3, lateralFriction=.5, physicsClientId=physicsClient)
+        p.changeDynamics(box_id, -1, mass=obj_mass, lateralFriction=.5, physicsClientId=physicsClient)
         obj_id[i] = box_id
 
     # load grippers
@@ -248,14 +248,14 @@ from time import perf_counter
 if __name__ == "__main__":
     if True:
         """single object grasping"""
-        ycb_model = '012_strawberry'
+        ycb_model = '021_bleach_cleanser'
         with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
                   'rb') as f_test_obj:
             test_obj: GraspingObj = pickle.load(f_test_obj)
 
         test_obj_urdf = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}.urdf")
-        cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [541, 819, 939, 1471]).tolist())
-        end_effector_pos = test_obj.effector_pos[1]
+        cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [70, 332, 558, 695]).tolist())
+        end_effector_pos = test_obj.effector_pos[0]
         # widths = np.linspace(15., 25., 5)
         widths = np.linspace(12.5, 25., 6)
         _min_height_ratio = int(25e-2 / (test_obj.effector_pos[-1][-1] - test_obj.maxHeight)) / 10
@@ -266,13 +266,14 @@ if __name__ == "__main__":
         end_height = end_effector_pos[-1] - test_obj.maxHeight
         skeleton = initialize_fingers(cps, end_effector_pos, 8, root_length=.04, expand_dist=end_height)
         _, fingers = initialize_gripper(cps, end_effector_pos, 8, expand_dist=end_height * 1000,
-                                        height_ratio=height_ratio[2], width=widths[2], gap=2, finger_skeletons=skeleton)
+                                        height_ratio=height_ratio[4], width=widths[4], gap=2, finger_skeletons=skeleton)
         gripper = FOAMGripper(fingers)
         t2 = perf_counter()
         print(t2 - t1)
         if False:
             """bullet sim"""
-            final_pos, collision = multiple_gripper_sim(test_obj, test_obj_urdf, [gripper] * 20, end_height, max_deviation=.1, mode=p.GUI)
+            final_pos, collision = multiple_gripper_sim(test_obj, test_obj_urdf, [gripper] * 20, end_height,
+                                                        max_deviation=.1, mode=p.GUI, obj_mass=50e-3)
             t3 = perf_counter()
             print(t3 - t2)
             print(f"Collision: {collision}")
@@ -281,7 +282,7 @@ if __name__ == "__main__":
                     print(i)
 
         if False:
-            _kinematic_verify(gripper, speed=6e-6, frames=240*100, test_ind=0, mode=p.DIRECT)
+            _kinematic_verify(gripper, speed=4.63e-5, frames=240 * 22, test_ind=0, mode=p.DIRECT)
 
         gripper.assemble(bottom_thick=1.5)
         print((test_obj.height + (end_effector_pos[-1] - test_obj.maxHeight)) * 1000 + 30)

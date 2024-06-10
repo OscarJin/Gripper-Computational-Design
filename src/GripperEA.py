@@ -319,7 +319,8 @@ class SingleObjectGripperDE(DifferentialEvolution):
         gripper = FOAMGripper(fingers)
         success_cnt = 0
         final_pos, collision = multiple_gripper_sim(self._graspObj, self._graspObjUrdf, [gripper] * 20,
-                                                    end_height, max_deviation=.1, mode=p.DIRECT)
+                                                    end_height, max_deviation=.1, obj_mass=50e-3,
+                                                    mode=p.DIRECT)
         for pos in final_pos:
             if .5 * (.05 * 500 / 240) < pos[-1] - self._graspObj.cog[-1] < 1.5 * (.05 * 500 / 240):
                 success_cnt += 1
@@ -335,8 +336,8 @@ class SingleObjectGripperDE(DifferentialEvolution):
     def create_individual(self):
         """create an individual randomly"""
         contact_points = self._random.sample(range(0, self._graspObj.num_middle_faces), self._numContact)
-        w = self._random.choice(range(len(self.widths)))
-        h = self._random.choice(range(len(self.height_ratio)))
+        w = self._random.choice(range(1, len(self.widths)))
+        h = self._random.choice(range(1, len(self.height_ratio)))
         pos = self._random.choice(range(len(self._graspObj.effector_pos)))
         gene = contact_points + [w, h, pos]
         return gene

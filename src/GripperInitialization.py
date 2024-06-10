@@ -276,7 +276,7 @@ if __name__ == "__main__":
 
     if True:
         """single object grasping"""
-        ycb_model = '012_strawberry'
+        ycb_model = '001_tape'
         with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
                   'rb') as f_test_obj:
             test_obj: GraspingObj = pickle.load(f_test_obj)
@@ -289,8 +289,8 @@ if __name__ == "__main__":
         with open(os.path.join(save_dir, 'reference_object.pickle'), 'rb') as f_test_obj:
             test_obj: GraspingObj = pickle.load(f_test_obj)
 
-    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [541, 819, 939, 1471]).tolist())
-    end_effector_pos = test_obj.effector_pos[1]
+    cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [355, 504, 243, 169]).tolist())
+    end_effector_pos = test_obj.effector_pos[4]
 
     n_finger_joints = 8
     height = end_effector_pos[-1] - test_obj.maxHeight
