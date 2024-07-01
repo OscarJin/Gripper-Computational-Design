@@ -490,19 +490,21 @@ if __name__ == "__main__":
     """
         prepare the grasping object here
     """
-    ycb_model = '001_tape'
+    ycb_model = '000_sphere'
     stl_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.stl")
     data_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle")
     test_obj = GraspingObj(friction=0.5)
     t1 = perf_counter()
-    test_obj.preprocess(stl_path=stl_file, data_path=data_file, end_effector_max_height=4, radius=np.inf)
+    test_obj.preprocess(stl_path=stl_file, data_path=data_file,
+                        height_lower_bound=.2, height_upper_bound=.6,
+                        end_effector_max_height=1, radius=np.inf)
     t2 = perf_counter()
     print(t2 - t1)
 
-    # ycb_model = '011_banana'
+    # ycb_model = '013_apple'
     # with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
     #           'rb') as f_test_obj:
     #     test_obj: GraspingObj = pickle.load(f_test_obj)
-    # cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [410, 542, 1205, 1861]).tolist())
+    # cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [364, 1329, 1633, 1722]).tolist())
     # cps.calc_force(verbose=True)
     # cps.visualization(vector_ratio=.04)
