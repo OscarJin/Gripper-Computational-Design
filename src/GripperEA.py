@@ -424,7 +424,7 @@ class SingleHeavyObjectGripperDE(SingleObjectGripperDE):
         self._graspObjUrdf = grasping_obj_urdf
         self._numContact = numContact
         self._n_finger_joints = n_finger_joints
-        self.widths = np.linspace(12.5, 37.5, 11)
+        self.widths = np.linspace(12.5, 25., 6)
         _min_height_ratio = int(25e-2 / (self._graspObj.effector_pos[-1][-1] - self._graspObj.maxHeight)) / 10
         self.height_ratio = np.arange(_min_height_ratio, .7, .1)
         _lower_bound = [0] * self._numContact + [1, 1, 0]
@@ -474,13 +474,15 @@ class SingleHeavyObjectGripperDE(SingleObjectGripperDE):
             min_ori_diff = min(min_ori_diff, diff)
         if min_ori_diff < np.deg2rad(45):
             return -1
+        new_width_ind = gene[-3]
         if width > 20 * np.tan(min_ori_diff / 2) * 2 - 2:
             if gene[-3] == 0:
                 return -1
             for i in range(gene[-3])[::-1]:
                 if self.widths[i] < 20 * np.tan(min_ori_diff / 2) * 2 - 2:
                     width = self.widths[i]
-                    gene[-3] = i
+                    # gene[-3] = i
+                    new_width_ind = i
                     break
 
         max_height = 0.
@@ -502,7 +504,7 @@ class SingleHeavyObjectGripperDE(SingleObjectGripperDE):
 
         return (1 * success_cnt / 20
                 - 0.5 * (500 - collision[1]) * collision[0] / 500
-                + 0.25 * (gene[-3] / self._upper_bound[-3]))
+                + 0.25 * (new_width_ind / self._upper_bound[-3]))
 
 
 class MultiObjectsGripperDE(DifferentialEvolution):

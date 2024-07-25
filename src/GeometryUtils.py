@@ -496,8 +496,8 @@ if __name__ == "__main__":
     test_obj = GraspingObj(friction=0.5)
     t1 = perf_counter()
     test_obj.preprocess(stl_path=stl_file, data_path=data_file,
-                        height_lower_bound=.2, height_upper_bound=.6,
-                        end_effector_max_height=1, radius=np.inf)
+                        height_lower_bound=.05, height_upper_bound=.45,
+                        end_effector_max_height=.8, radius=np.inf)
     t2 = perf_counter()
     print(t2 - t1)
 

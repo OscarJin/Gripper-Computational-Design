@@ -83,6 +83,20 @@ def compute_finger_positions(finger: Finger, joint: int, area_0: float, frames: 
     return joint_pos.reshape((1, frames))
 
 
+def compute_finger_joints_maxforce(finger: Finger, joint: int, dp=90e3):
+    u_left = finger.units[joint]
+    u_right = finger.units[joint + 1]
+    a = np.sqrt(u_left.height ** 2 + (u_left.height / np.tan(u_left.theta2) + u_right.gap / 2) ** 2)
+    b = np.sqrt(u_right.height ** 2 + (u_right.height / np.tan(u_right.theta1) + u_right.gap / 2) ** 2)
+    phi_0 = np.pi - np.arcsin(u_left.height / a) - np.arcsin(u_right.height / b)
+    a /= 1000
+    b /= 1000
+    l_skin = np.sqrt(a ** 2 + b ** 2 - 2 * a * b * np.cos(phi_0))
+    x = (a + b - l_skin) / 2
+    max_force = dp * (finger.max_unit_width / 1000) * .5 * (x ** 2)
+    return max_force
+
+
 def _kinematic_verify(gripper: FOAMGripper, speed: float, frames: int, test_ind: int = 0, mode: int = p.DIRECT):
     # begin pybullet test
     physicsClient = p.connect(mode)
@@ -172,6 +186,8 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
     finger_id = []
     joint_positions = {}
     joint_positions_memory = {}
+    joint_maxforce = {}
+    joint_maxforce_memory = {}
     palm_r = (obj.x_span + obj.y_span) / 4
     for _i, g in enumerate(grippers):
         for f in g.fingers:
@@ -198,6 +214,15 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
                 joint_positions_memory[f.id] = pos
             joint_positions[f_id] = pos
 
+            if f.id in joint_maxforce_memory.keys():
+                max_force = joint_maxforce_memory[f.id]
+            else:
+                max_force = np.empty([f.n_unit - 1], dtype=float)
+                for k in range(f.n_unit - 1):
+                    max_force[k] = compute_finger_joints_maxforce(f, k)
+                joint_maxforce_memory[f.id] = max_force
+            joint_maxforce[f_id] = max_force
+
     p.setRealTimeSimulation(0, physicsClientId=physicsClient)
 
     gripper_ground_collision = False
@@ -209,6 +234,7 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
                 limit = p.getJointInfo(f, j, physicsClient)[9]
                 p.setJointMotorControl2(f, j, p.POSITION_CONTROL,
                                         targetPosition=min(joint_positions[f][j][_i], .95 * limit),
+                                        force=joint_maxforce[f][j],
                                         physicsClientId=physicsClient)
         p.stepSimulation(physicsClientId=physicsClient)
         if not gripper_ground_collision:
@@ -229,6 +255,7 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
                 limit = p.getJointInfo(f, j, physicsClient)[9]
                 p.setJointMotorControl2(f, j, p.POSITION_CONTROL,
                                         targetPosition=min(joint_positions[f][j][-1], .95 * limit),
+                                        force=joint_maxforce[f][j],
                                         physicsClientId=physicsClient)
             p.resetBaseVelocity(f, [0, 0, .05], physicsClientId=physicsClient)
         p.stepSimulation(physicsClientId=physicsClient)
@@ -261,10 +288,10 @@ if __name__ == "__main__":
             test_obj: GraspingObj = pickle.load(f_test_obj)
 
         test_obj_urdf = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}.urdf")
-        cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [252, 348, 501, 597]).tolist())
-        end_effector_pos = test_obj.effector_pos[2]
-        widths = np.linspace(12.5, 37.5, 11)
-        # widths = np.linspace(12.5, 25., 6)
+        cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [40, 433, 567, 867]).tolist())
+        end_effector_pos = test_obj.effector_pos[1]
+        # widths = np.linspace(12.5, 37.5, 11)
+        widths = np.linspace(12.5, 25., 6)
         _min_height_ratio = int(25e-2 / (test_obj.effector_pos[-1][-1] - test_obj.maxHeight)) / 10
         height_ratio = np.arange(_min_height_ratio, .7, .1)
         # height_ratio = np.linspace(0.4, 0.7, 4)
@@ -274,7 +301,7 @@ if __name__ == "__main__":
         skeleton = initialize_fingers(cps, end_effector_pos, 8, root_length=.04, expand_dist=end_height,
                                       grasp_force=1e-3)
         _, fingers = initialize_gripper(cps, end_effector_pos, 8, expand_dist=end_height * 1000,
-                                        height_ratio=height_ratio[1], width=widths[4], gap=2, finger_skeletons=skeleton)
+                                        height_ratio=height_ratio[1], width=widths[3], gap=2, finger_skeletons=skeleton)
         gripper = FOAMGripper(fingers)
         t2 = perf_counter()
         print(t2 - t1)
