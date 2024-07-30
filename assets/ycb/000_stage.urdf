@@ -1,0 +1,79 @@
+<robot name="000_stage">
+	<link name="cylinder_1">
+		<visual>
+			<origin xyz="0 0 0" rpy="0 0 0" />
+			<geometry>
+				<cylinder radius="0.04" length="0.015" />
+			</geometry>
+			<material name="texture">
+				<color rgba="1.0 1.0 1.0 1.0" />
+			</material>
+		</visual>
+		<collision>
+			<geometry>
+				<cylinder radius="0.04" length="0.015" />
+			</geometry>
+		    <origin xyz="0 0 0" rpy="0 0 0" />
+		</collision>
+		<inertial>
+			<mass value="1.0" />
+			<inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0" />
+		</inertial>
+	</link>
+
+	<link name="cylinder_2">
+		<visual>
+			<origin xyz="0 0 0" rpy="0 0 0" />
+			<geometry>
+				<cylinder radius="0.02" length="0.07" />
+			</geometry>
+			<material name="texture">
+				<color rgba="1.0 1.0 1.0 1.0" />
+			</material>
+		</visual>
+		<collision>
+			<geometry>
+				<cylinder radius="0.02" length="0.07" />
+			</geometry>
+		    <origin xyz="0 0 0" rpy="0 0 0" />
+		</collision>
+		<inertial>
+			<mass value="1.0" />
+			<inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0" />
+		</inertial>
+	</link>
+
+	<link name="cylinder_3">
+		<visual>
+			<origin xyz="0 0 0" rpy="0 0 0" />
+			<geometry>
+				<cylinder radius="0.04" length="0.015" />
+			</geometry>
+			<material name="texture">
+				<color rgba="1.0 1.0 1.0 1.0" />
+			</material>
+		</visual>
+		<collision>
+			<geometry>
+				<cylinder radius="0.04" length="0.015" />
+			</geometry>
+		    <origin xyz="0 0 0" rpy="0 0 0" />
+		</collision>
+		<inertial>
+			<mass value="1.0" />
+			<inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0" />
+		</inertial>
+	</link>
+
+	<joint name="joint_12" type="fixed">
+        <origin xyz="0 0 0.0425" rpy="0 0 0"/>
+        <parent link="cylinder_1"/>
+        <child link="cylinder_2"/>
+    </joint>
+
+    <joint name="joint_23" type="fixed">
+        <origin xyz="0 0 0.0425" rpy="0 0 0"/>
+        <parent link="cylinder_2"/>
+        <child link="cylinder_3"/>
+    </joint>
+</robot>

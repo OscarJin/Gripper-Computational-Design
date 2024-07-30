@@ -170,12 +170,15 @@ def multiple_gripper_sim(obj: GraspingObj, obj_urdf: str, grippers: List[FOAMGri
     obj_id = [None for _ in range(n_obj)]
     obj_gap: int = 1
     for _i in range(n_obj):
-        startPos = [positions[_i][0] * obj_gap, positions[_i][1] * obj_gap, obj.cog[-1]]
+        # startPos = [positions[_i][0] * obj_gap, positions[_i][1] * obj_gap, obj.cog[-1]]
+        startPos = [positions[_i][0] * obj_gap, positions[_i][1] * obj_gap, 0.0075]
         startOrientation = p.getQuaternionFromEuler([0, 0, 0])
         box_id = p.loadURDF(obj_urdf, startPos, startOrientation, physicsClientId=physicsClient,
                             flags=p.URDF_USE_SELF_COLLISION | p.URDF_USE_SELF_COLLISION_INCLUDE_PARENT)
         cur_obj_mass = obj_mass if increasing_mass is None else obj_mass * np.power(1 + increasing_mass, _i)
-        p.changeDynamics(box_id, -1, mass=cur_obj_mass, lateralFriction=.5, physicsClientId=physicsClient)
+        p.changeDynamics(box_id, -1, mass=cur_obj_mass / 3, lateralFriction=.5, physicsClientId=physicsClient)
+        p.changeDynamics(box_id, 0, mass=cur_obj_mass / 3, lateralFriction=.5, physicsClientId=physicsClient)
+        p.changeDynamics(box_id, 1, mass=cur_obj_mass / 3, lateralFriction=.5, physicsClientId=physicsClient)
         obj_id[_i] = box_id
         # add text
         p.addUserDebugText(str(int(cur_obj_mass * 1000)),
@@ -282,14 +285,14 @@ from time import perf_counter
 if __name__ == "__main__":
     if True:
         """single object grasping"""
-        ycb_model = '000_sphere'
+        ycb_model = '000_stage'
         with open(os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle"),
                   'rb') as f_test_obj:
             test_obj: GraspingObj = pickle.load(f_test_obj)
 
         test_obj_urdf = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}.urdf")
-        cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [40, 433, 567, 867]).tolist())
-        end_effector_pos = test_obj.effector_pos[1]
+        cps = ContactPoints(test_obj, np.take(test_obj.faces_mapping_clamp_height_and_radius, [0, 28, 640, 732]).tolist())
+        end_effector_pos = test_obj.effector_pos[0]
         # widths = np.linspace(12.5, 37.5, 11)
         widths = np.linspace(12.5, 25., 6)
         _min_height_ratio = int(25e-2 / (test_obj.effector_pos[-1][-1] - test_obj.maxHeight)) / 10
@@ -301,7 +304,7 @@ if __name__ == "__main__":
         skeleton = initialize_fingers(cps, end_effector_pos, 8, root_length=.04, expand_dist=end_height,
                                       grasp_force=1e-3)
         _, fingers = initialize_gripper(cps, end_effector_pos, 8, expand_dist=end_height * 1000,
-                                        height_ratio=height_ratio[1], width=widths[3], gap=2, finger_skeletons=skeleton)
+                                        height_ratio=height_ratio[3], width=widths[4], gap=2, finger_skeletons=skeleton)
         gripper = FOAMGripper(fingers)
         t2 = perf_counter()
         print(t2 - t1)

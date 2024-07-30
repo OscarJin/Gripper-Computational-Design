@@ -276,6 +276,7 @@ class GraspingObj(object):
         r = ((self.x_span + self.y_span) / 4 if xy_ratio > 1.5 else np.inf) if radius is None else radius
         self.clamp_height_and_radius(height_lower_bound, height_upper_bound, r)
         print(f'Regions of interest: {len(self.faces_mapping_clamp_height_and_radius)}')
+        print(f'COM: {self.cog}')
         _end_effector_pos = np.asarray([self.cog[0], self.cog[1], self.maxHeight + .04])
         while _end_effector_pos[-1] < self.maxHeight + end_effector_max_height * self.height:
             self.compute_connectivity_from(_end_effector_pos)
@@ -490,14 +491,14 @@ if __name__ == "__main__":
     """
         prepare the grasping object here
     """
-    ycb_model = '000_sphere'
+    ycb_model = '000_stage'
     stl_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.stl")
     data_file = os.path.join(os.path.abspath('..'), f"assets/ycb/{ycb_model}/{ycb_model}.pickle")
     test_obj = GraspingObj(friction=0.5)
     t1 = perf_counter()
     test_obj.preprocess(stl_path=stl_file, data_path=data_file,
-                        height_lower_bound=.05, height_upper_bound=.45,
-                        end_effector_max_height=.8, radius=np.inf)
+                        height_lower_bound=.2, height_upper_bound=.9,
+                        end_effector_max_height=.7, radius=np.inf)
     t2 = perf_counter()
     print(t2 - t1)
 

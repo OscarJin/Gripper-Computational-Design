@@ -485,7 +485,6 @@ class SingleHeavyObjectGripperDE(SingleObjectGripperDE):
                     new_width_ind = i
                     break
 
-        max_height = 0.
         _, fingers = initialize_gripper(cps, end_effector_pos, self._n_finger_joints,
                                         expand_dist=end_height * 1000,
                                         height_ratio=height_ratio, width=width, finger_skeletons=skeletons)
@@ -494,11 +493,10 @@ class SingleHeavyObjectGripperDE(SingleObjectGripperDE):
         final_pos, collision = multiple_gripper_sim(self._graspObj, self._graspObjUrdf, [gripper] * 20,
                                                     end_height, max_deviation=0, obj_mass=200e-3, increasing_mass=0.15,
                                                     mode=p.DIRECT)
-        for pos in final_pos:
+        for _i, pos in enumerate(final_pos):
             if .5 * (.05 * 500 / 240) < pos[-1] - self._graspObj.cog[-1] < 1.5 * (.05 * 500 / 240):
-                success_cnt += 1
-                if pos[-1] > max_height:
-                    max_height = pos[-1]
+                # success_cnt += 1
+                success_cnt = _i
         if success_cnt == 0:
             return -1
 
